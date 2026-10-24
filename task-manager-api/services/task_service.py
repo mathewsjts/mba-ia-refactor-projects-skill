@@ -1,131 +1,123 @@
-import logging
+"""Regras de negócio de tarefas (T04)."""
+from datetime import datetime
 
-from clock import utcnow
-from controllers.validators import (
-    normalize_tags,
-    parse_due_date,
-    require_payload,
-    validate_priority,
-    validate_status,
-    validate_title,
-)
-from constants import DEFAULT_PRIORITY
-from errors import NotFoundError
-from models.category import Category
+from database import db
+from errors import NotFoundError, ValidationError
 from models.task import Task
-from models.user import User
+from constants import MAX_PRIORITY, MAX_TITLE_LENGTH, MIN_PRIORITY, MIN_TITLE_LENGTH, TASK_STATUSES
 
-logger = logging.getLogger(__name__)
+
+def _join_tags(tags):
+    return ','.join(tags) if isinstance(tags, list) else tags
+
+
+def _parse_due_date(value, message):
+    try:
+        return datetime.strptime(value, '%Y-%m-%d')
+    except (ValueError, TypeError):
+        raise ValidationError(message)
 
 
 class TaskService:
-    def list(self, limit=None, offset=0):
-        return Task.list_with_relations(limit=limit, offset=offset)
+    def __init__(self, task_repository, user_repository, category_repository):
+        self._tasks = task_repository
+        self._users = user_repository
+        self._categories = category_repository
 
-    def get(self, task_id):
-        task = Task.get(task_id)
+    def list_tasks(self):
+        return self._tasks.list_with_relations()
+
+    def search_tasks(self, query=None, status=None, priority=None, user_id=None):
+        return self._tasks.search(query=query, status=status, priority=priority, user_id=user_id)
+
+    def get_task(self, task_id):
+        task = self._tasks.get(task_id)
         if not task:
-            raise NotFoundError("Task não encontrada")
+            raise NotFoundError('Task não encontrada')
         return task
 
-    def search(self, q="", status="", priority="", user_id="", limit=None, offset=0):
-        return Task.search(
-            q=q or None,
-            status=status or None,
-            priority=priority or None,
-            user_id=user_id or None,
-            limit=limit,
-            offset=offset,
-        )
+    def create_task(self, validated):
+        self._ensure_related_exist(validated.get('user_id'), validated.get('category_id'))
+        task = Task()
+        task.title = validated['title']
+        task.description = validated['description']
+        task.status = validated['status']
+        task.priority = validated['priority']
+        task.user_id = validated['user_id']
+        task.category_id = validated['category_id']
+        if validated['due_date']:
+            task.due_date = _parse_due_date(validated['due_date'], 'Formato de data inválido. Use YYYY-MM-DD')
+        if validated['tags']:
+            task.tags = _join_tags(validated['tags'])
+        self._tasks.add(task)
+        db.session.commit()
+        return task
+
+    def update_task(self, task_id, data):
+        task = self.get_task(task_id)
+        if not data:
+            raise ValidationError('Dados inválidos')
+
+        if 'title' in data:
+            if len(data['title']) < MIN_TITLE_LENGTH:
+                raise ValidationError('Título muito curto')
+            if len(data['title']) > MAX_TITLE_LENGTH:
+                raise ValidationError('Título muito longo')
+            task.title = data['title']
+        if 'description' in data:
+            task.description = data['description']
+        if 'status' in data:
+            if data['status'] not in TASK_STATUSES:
+                raise ValidationError('Status inválido')
+            task.status = data['status']
+        if 'priority' in data:
+            if data['priority'] < MIN_PRIORITY or data['priority'] > MAX_PRIORITY:
+                raise ValidationError('Prioridade deve ser entre 1 e 5')
+            task.priority = data['priority']
+        if 'user_id' in data:
+            if data['user_id'] and self._users.get(data['user_id']) is None:
+                raise NotFoundError('Usuário não encontrado')
+            task.user_id = data['user_id']
+        if 'category_id' in data:
+            if data['category_id'] and self._categories.get(data['category_id']) is None:
+                raise NotFoundError('Categoria não encontrada')
+            task.category_id = data['category_id']
+        if 'due_date' in data:
+            task.due_date = _parse_due_date(data['due_date'], 'Formato de data inválido') if data['due_date'] else None
+        if 'tags' in data:
+            task.tags = _join_tags(data['tags'])
+
+        db.session.commit()
+        return task
+
+    def delete_task(self, task_id):
+        task = self.get_task(task_id)
+        self._tasks.delete(task)
+        db.session.commit()
 
     def stats(self):
-        now = utcnow()
-        by_status = Task.count_by_status()
-        total = Task.count()
-        done = by_status.get("done", 0)
+        tasks = self._tasks.list_all()
+        total = len(tasks)
+        by_status = {status: 0 for status in TASK_STATUSES}
+        overdue = 0
+        for task in tasks:
+            if task.status in by_status:
+                by_status[task.status] += 1
+            if task.is_overdue():
+                overdue += 1
+        done = by_status['done']
         return {
-            "total": total,
-            "pending": by_status.get("pending", 0),
-            "in_progress": by_status.get("in_progress", 0),
-            "done": done,
-            "cancelled": by_status.get("cancelled", 0),
-            "overdue": Task.count_overdue(now),
-            "completion_rate": round((done / total) * 100, 2) if total > 0 else 0,
+            'total': total,
+            'pending': by_status['pending'],
+            'in_progress': by_status['in_progress'],
+            'done': done,
+            'cancelled': by_status['cancelled'],
+            'overdue': overdue,
+            'completion_rate': round((done / total) * 100, 2) if total > 0 else 0,
         }
 
-    def create(self, data):
-        require_payload(data)
-        title = validate_title(data.get("title"), required=True)
-        description = data.get("description", "")
-        status = data.get("status", "pending")
-        validate_status(status)
-        priority = data.get("priority", DEFAULT_PRIORITY)
-        validate_priority(priority)
-        user_id = data.get("user_id")
-        category_id = data.get("category_id")
-
-        if user_id and not User.get(user_id):
-            raise NotFoundError("Usuário não encontrado")
-        if category_id and not Category.get(category_id):
-            raise NotFoundError("Categoria não encontrada")
-
-        due_date = data.get("due_date")
-        tags = data.get("tags")
-
-        task = Task()
-        task.title = title
-        task.description = description
-        task.status = status
-        task.priority = priority
-        task.user_id = user_id
-        task.category_id = category_id
-        if due_date:
-            task.due_date = parse_due_date(due_date, "Formato de data inválido. Use YYYY-MM-DD")
-        if tags:
-            task.tags = normalize_tags(tags)
-
-        task.save("Erro ao criar task")
-        logger.info("Task criada: %s - %s", task.id, task.title)
-        return task
-
-    def update(self, task_id, data):
-        task = Task.get(task_id)
-        if not task:
-            raise NotFoundError("Task não encontrada")
-        require_payload(data)
-
-        if "title" in data:
-            task.title = validate_title(data["title"], required=False)
-        if "description" in data:
-            task.description = data["description"]
-        if "status" in data:
-            validate_status(data["status"])
-            task.status = data["status"]
-        if "priority" in data:
-            validate_priority(data["priority"])
-            task.priority = data["priority"]
-        if "user_id" in data:
-            if data["user_id"] and not User.get(data["user_id"]):
-                raise NotFoundError("Usuário não encontrado")
-            task.user_id = data["user_id"]
-        if "category_id" in data:
-            if data["category_id"] and not Category.get(data["category_id"]):
-                raise NotFoundError("Categoria não encontrada")
-            task.category_id = data["category_id"]
-        if "due_date" in data:
-            if data["due_date"]:
-                task.due_date = parse_due_date(data["due_date"], "Formato de data inválido")
-            else:
-                task.due_date = None
-        if "tags" in data:
-            task.tags = normalize_tags(data["tags"])
-
-        task.updated_at = utcnow()
-        task.save("Erro ao atualizar")
-        logger.info("Task atualizada: %s", task.id)
-        return task
-
-    def delete(self, task_id):
-        task = self.get(task_id)
-        task.delete("Erro ao deletar")
-        logger.info("Task deletada: %s", task_id)
+    def _ensure_related_exist(self, user_id, category_id):
+        if user_id and self._users.get(user_id) is None:
+            raise NotFoundError('Usuário não encontrado')
+        if category_id and self._categories.get(category_id) is None:
+            raise NotFoundError('Categoria não encontrada')

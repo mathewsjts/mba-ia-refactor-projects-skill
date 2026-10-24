@@ -2,216 +2,210 @@
 RELATÓRIO DE AUDITORIA DE ARQUITETURA
 ================================
 Projeto:  task-manager-api
-Stack:    Python 3.9.6 + Flask 3.0.0 (Flask-SQLAlchemy 3.1.1 / SQLAlchemy 2.0.54)
+Stack:    Python 3.9.6 + Flask 3.0.0 (Flask-SQLAlchemy 3.1.1 / SQLAlchemy 2.0.52)
 Arquivos: 15 analisados | ~1158 linhas de código
-Data:     2026-10-10
+Data:     2026-10-24
 
 ## Resumo
-CRITICAL: 3 | HIGH: 3 | MEDIUM: 7 | LOW: 5
+CRITICAL: 3 | HIGH: 3 | MEDIUM: 7 | LOW: 4
 
 | # | Severidade | Anti-pattern | Local principal |
 |---|---|---|---|
-| F-01 | CRITICAL | Segredos e credenciais hardcoded (AP-02) | app.py:13 |
-| F-02 | CRITICAL | Exposição de dados sensíveis — senha/hash na resposta (AP-03) | models/user.py:22 |
-| F-03 | CRITICAL | Armazenamento inseguro de senha — MD5 sem salt (AP-04) | models/user.py:29 |
-| F-04 | HIGH | Autenticação falsa / operação privilegiada sem controle (AP-05) | routes/user_routes.py:210 |
-| F-05 | HIGH | Regra de negócio e acesso a dados na camada HTTP (AP-07) | routes/task_routes.py:11-299 |
-| F-06 | HIGH | Configuração de execução insegura (AP-10) | app.py:34 |
+| F-01 | CRITICAL | Segredos hardcoded (AP-02) | app.py:13 |
+| F-02 | CRITICAL | Exposição de dados sensíveis (AP-03) | models/user.py:16-25 |
+| F-03 | CRITICAL | Armazenamento inseguro de senha (AP-04) | models/user.py:27-32 |
+| F-04 | HIGH | Operação privilegiada sem controle de acesso (AP-05) | routes/user_routes.py:207-211 |
+| F-05 | HIGH | Regra de negócio na camada HTTP (AP-07) | routes/report_routes.py:12-155 |
+| F-06 | HIGH | Configuração de execução insegura (AP-10) | app.py:11-33 |
 | F-07 | MEDIUM | Query N+1 (AP-13) | routes/task_routes.py:41-57 |
-| F-08 | MEDIUM | Validação ausente ou duplicada (AP-14) | routes/task_routes.py:96-114 |
+| F-08 | MEDIUM | Validação ausente ou duplicada (AP-14) | routes/task_routes.py:85-213 |
 | F-09 | MEDIUM | Tratamento de erro não centralizado (AP-15) | routes/task_routes.py:62 |
 | F-10 | MEDIUM | CORS permissivo (AP-16) | app.py:15 |
-| F-11 | MEDIUM | Listagem sem paginação (AP-17) | routes/task_routes.py:14 |
-| F-12 | MEDIUM | Integridade referencial não garantida (AP-18) | routes/user_routes.py:140-142 |
-| F-13 | MEDIUM | APIs deprecated (AP-19) | models/task.py:15 |
+| F-11 | MEDIUM | Integridade referencial não garantida (AP-18) | routes/user_routes.py:140-142 |
+| F-12 | MEDIUM | API deprecated (AP-19) | models/task.py:15-16 |
+| F-13 | MEDIUM | Serialização manual duplicada (AP-24) | routes/task_routes.py:16-59 |
 | F-14 | LOW | Logging via `print` (AP-20) | routes/task_routes.py:149 |
-| F-15 | LOW | Magic numbers e literais duplicados (AP-21) | routes/task_routes.py:110 |
+| F-15 | LOW | Magic numbers e literais duplicados (AP-21) | routes/task_routes.py:96-114 |
 | F-16 | LOW | Código morto (AP-22) | services/notification_service.py:1-49 |
 | F-17 | LOW | Nomenclatura pobre e código verboso (AP-23) | models/task.py:38-60 |
-| F-18 | LOW | Serialização manual duplicada (AP-24) | routes/task_routes.py:17-28 |
 
 ## Findings
 
 ### F-01 [CRITICAL] Segredos e credenciais hardcoded (AP-02)
 Arquivo: app.py:13
-Ocorrências: services/notification_service.py:9-10 (`email_user = 'taskmanager@gmail.com'`, `email_password = 'senha123'`)
-Descrição: `app.config['SECRET_KEY'] = 'super-secret-****'` fixa a chave de assinatura de sessão em código versionado (app.py:13). O `NotificationService.__init__` grava usuário e senha SMTP literais (notification_service.py:9-10). A URI do banco também é literal (app.py:11).
-Impacto: qualquer pessoa com acesso ao repositório obtém a `SECRET_KEY` (pode forjar sessões/cookies assinados) e as credenciais de e-mail; rotacionar exige novo deploy.
-Recomendação: mover `SECRET_KEY`, URI do banco e credenciais SMTP para variáveis de ambiente lidas por uma classe de configuração, com `.env.example` documentando as chaves (sem valores reais) — Playbook T02.
+Ocorrências: services/notification_service.py:7-10 (`email_user = 'taskmanager@gmail.com'`, `email_password = 'senha123'`)
+Descrição: `app.config['SECRET_KEY'] = 'super-secret-****'` fixa a chave de assinatura da aplicação no código versionado (app.py:13). O `NotificationService.__init__` grava host, usuário e senha SMTP literais (`'senha***'`). As senhas de seed em `seed.py` são de script de desenvolvimento executado manualmente e não entram como finding (falso positivo do catálogo).
+Impacto: qualquer pessoa com acesso ao repositório obtém a `SECRET_KEY` (permite forjar tokens/sessões) e as credenciais SMTP; rotacionar exige novo deploy.
+Recomendação: mover segredos para variáveis de ambiente lidas numa camada de configuração, com `.env.example` documentando as chaves sem valores — Playbook T02.
 Contrato: preservado
 
-### F-02 [CRITICAL] Exposição de dados sensíveis — senha/hash na resposta (AP-03)
+### F-02 [CRITICAL] Exposição de dados sensíveis (AP-03)
 Arquivo: models/user.py:16-25
-Ocorrências: routes/user_routes.py:85-86 (POST /users), routes/user_routes.py:129 (PUT /users/<id>), routes/user_routes.py:33 (GET /users/<id>), routes/user_routes.py:207-211 (POST /login)
-Descrição: `User.to_dict()` inclui a chave `'password'` com o hash da senha (models/user.py:22). Todos os endpoints que serializam usuário via `to_dict()` devolvem o hash ao cliente: criação, atualização, detalhe e login. `GET /users` (listagem) **não** expõe — divergência perigosa de serialização (ver F-18).
-Impacto: vazamento do hash de senha de qualquer usuário por requisição anônima; combinado com o MD5 sem salt (F-03), as senhas são recuperáveis em segundos. Violação de LGPD.
-Recomendação: remover `password` da serialização do usuário em todos os pontos, centralizando num schema/serializer único — Playbook T13.
-Contrato: exige BC-01
+Ocorrências: routes/user_routes.py:33 (get_user), routes/user_routes.py:85 (create_user), routes/user_routes.py:129 (update_user), routes/user_routes.py:209 (login)
+Descrição: `User.to_dict()` inclui a chave `password` (o hash MD5 — user.py:21). Esse dicionário é devolvido ao cliente, sem autenticação, em `GET /users/<id>`, `POST /users`, `PUT /users/<id>` e dentro de `user` na resposta de `POST /login`. Confirmado no baseline: as respostas dessas quatro rotas contêm `password`. `GET /users` (lista) monta dicionário próprio sem a senha, o que torna a divergência ainda mais perigosa (ver F-13).
+Impacto: vazamento direto do hash de senha por requisição anônima; combinado ao MD5 (F-03), permite recuperar as senhas em segundos. Violação de LGPD.
+Recomendação: remover `password` do serializador e nunca devolvê-lo — Playbook T13. A chave desaparece das respostas (quebra de contrato autorizada por ser finding de segurança CRITICAL).
+Contrato: exige BC-01, BC-02, BC-03, BC-04
 
-### F-03 [CRITICAL] Armazenamento inseguro de senha — MD5 sem salt (AP-04)
+### F-03 [CRITICAL] Armazenamento inseguro de senha (AP-04)
 Arquivo: models/user.py:27-32
 Ocorrências: Nenhuma adicional
-Descrição: `set_password` grava `hashlib.md5(pwd.encode()).hexdigest()` (models/user.py:29) e `check_password` compara por igualdade de MD5 (models/user.py:32). MD5 é hash rápido e sem salt. (O uso de MD5 também seria AP-19 por algoritmo fraco; consolidado aqui sob AP-04 por ser o mais severo.)
-Impacto: com um dump do banco, as senhas caem em segundos (tabelas rainbow / brute force em GPU); reuso de senha compromete outros sistemas dos usuários.
-Recomendação: usar `werkzeug.security.generate_password_hash` / `check_password_hash` (já disponível via dependência Werkzeug do Flask), que aplica salt e algoritmo forte — Playbook T05. O seed (`python seed.py`) regenera os hashes, então o fluxo documentado continua funcionando.
-Contrato: preservado (muda apenas o valor armazenado do hash, não a estrutura das respostas; o seed re-hasheia no estado inicial)
+Descrição: `set_password()` grava `hashlib.md5(pwd.encode()).hexdigest()` (user.py:29) e `check_password()` compara MD5 (user.py:32). MD5 é hash rápido e sem salt. O mesmo trecho também configura AP-19 (algoritmo fraco), reportado aqui sob a severidade mais alta.
+Impacto: com um dump do banco, as senhas são quebradas em segundos (rainbow tables, força bruta em GPU); o reuso de senha compromete outros sistemas dos usuários.
+Recomendação: usar `werkzeug.security.generate_password_hash` / `check_password_hash` (já disponível via Flask) com algoritmo com salt — Playbook T05. O seed é reexecutado na validação, regerando os hashes; o login continua funcionando com as mesmas credenciais.
+Contrato: preservado (o hash não é devolvido após F-02; `POST /login` segue retornando `token`)
 
-### F-04 [HIGH] Autenticação falsa / operação privilegiada sem controle (AP-05)
-Arquivo: routes/user_routes.py:185-211
-Ocorrências: routes/task_routes.py:225-238 (DELETE /tasks), routes/user_routes.py:134-151 (DELETE /users), routes/report_routes.py:211-223 (DELETE /categories)
-Descrição: `login` emite um token não assinado e previsível: `'fake-jwt-token-' + str(user.id)` (user_routes.py:210). Nenhuma rota verifica token algum — todos os endpoints, inclusive os destrutivos (DELETE de tasks, users e categories), são acessíveis anonimamente.
-Impacto: qualquer cliente anônimo pode criar, alterar e apagar tasks, usuários e categorias; o token não serve como credencial de autorização.
-Recomendação: (a) substituir o token falso por um assinado com `itsdangerous`/`SECRET_KEY` (melhoria sem quebra de contrato); (b) impor autenticação/autorização nas rotas privilegiadas via decorator — Playbook T14. Observação de contrato: **impor** auth faria rotas hoje abertas passarem a responder 401/403, o que quebraria o contrato atual e **não** é autorizado para finding HIGH; portanto a Fase 3 aplica só a parte (a) e deixa a parte (b) como recomendação.
-Contrato: preservado (assinatura do token não muda o shape da resposta de `/login`; a imposição de auth não será aplicada por exigir quebra não autorizada)
+### F-04 [HIGH] Operação privilegiada sem controle de acesso (AP-05)
+Arquivo: routes/user_routes.py:207-211
+Ocorrências: routes/task_routes.py:225-238 (DELETE task), routes/user_routes.py:134-151 (DELETE user), routes/report_routes.py:211-223 (DELETE category)
+Descrição: `login()` devolve um token falso `'fake-jwt-token-' + str(user.id)` (user_routes.py:210), não assinado e não verificado. Nenhuma rota exige autenticação: as três rotas destrutivas `DELETE /tasks/<id>`, `DELETE /users/<id>` e `DELETE /categories/<id>` apagam dados a partir de qualquer cliente anônimo. Classificado HIGH: autenticação inexistente/falsa, dano restrito a remoção de registros (não há execução arbitrária nem destruição em massa).
+Impacto: qualquer cliente anônimo apaga tarefas, usuários e categorias arbitrariamente.
+Recomendação: emitir um token assinado real no login (ex.: `itsdangerous`, que acompanha o Flask, usando a `SECRET_KEY`) e exigir `Authorization: Bearer <token>` válido nas rotas destrutivas, retornando 401 sem credencial — Playbook T14. As rotas de escrita não destrutivas (POST/PUT) permanecem abertas para preservar o contrato; as destrutivas passam a exigir credencial.
+Contrato: exige BC-05, BC-06, BC-07
 
-### F-05 [HIGH] Regra de negócio e acesso a dados na camada HTTP (AP-07)
-Arquivo: routes/task_routes.py:11-299
-Ocorrências: routes/user_routes.py:10-211, routes/report_routes.py:12-223
-Descrição: os handlers concentram HTTP + acesso a dados + regra + validação + serialização. Exemplos: `get_tasks` consulta o ORM e calcula atraso e enriquecimento (task_routes.py:14-59); `task_stats` agrega contagens e taxa de conclusão (task_routes.py:273-299); `summary_report` monta todo o relatório com loops e agregações (report_routes.py:13-101); `user_report` classifica tasks por status/prioridade/atraso em laço (report_routes.py:119-135). Nenhuma camada de serviço é usada (a única, `NotificationService`, está morta — F-16).
-Impacto: regra impossível de reutilizar (CLI, fila, outro endpoint) e de testar sem subir HTTP; duplicação (cálculo de atraso repetido em 4 lugares, ver F-18).
-Recomendação: extrair regras e acesso a dados para serviços/repositórios por domínio, deixando controllers finos que só orquestram entrada→serviço→status — Playbook T04.
+### F-05 [HIGH] Regra de negócio na camada HTTP (AP-07)
+Arquivo: routes/report_routes.py:12-155
+Ocorrências: routes/task_routes.py:11-63 (get_tasks), routes/task_routes.py:273-299 (task_stats), routes/task_routes.py:240-271 (search_tasks), routes/user_routes.py:10-25 (get_users), routes/user_routes.py:153-183 (get_user_tasks)
+Descrição: os handlers acessam o ORM diretamente e concentram agregação e regra de domínio. `summary_report` (report_routes.py:12-101) faz ~15 queries, laços de contagem por status/prioridade, cálculo de atraso e produtividade por usuário dentro da rota. `user_report` (103-155) repete a agregação. `task_stats` e `get_tasks` calculam `overdue` e `completion_rate` inline. A regra de atraso (`due_date < utcnow() and status not in ('done','cancelled')`) aparece replicada em 4 handlers.
+Impacto: regra impossível de reutilizar e de testar sem subir HTTP; duplicação da lógica de atraso e de agregação entre rotas.
+Recomendação: extrair repositórios por entidade (camada models/dados) e serviços de domínio (`TaskService`, `ReportService`, `UserService`) que concentrem agregação e a regra de atraso; os controllers só traduzem requisição/resposta — Playbook T03, T04.
 Contrato: preservado
 
 ### F-06 [HIGH] Configuração de execução insegura (AP-10)
-Arquivo: app.py:34
-Ocorrências: app.py:11-13 (config literal), app.py:30-31 (`db.create_all()` em nível de módulo)
-Descrição: `app.run(debug=True, host='0.0.0.0', port=5000)` fixa debug e host no código (app.py:34). Com `debug=True` o debugger do Werkzeug permite execução remota de código. Porta/host/config são literais sem leitura de ambiente (app.py:11-13). `db.create_all()` roda no import do módulo (app.py:30-31), criando schema como efeito colateral de importação.
-Impacto: execução remota de código via debugger exposto em `0.0.0.0`; impossível configurar ambientes distintos sem editar código; efeito colateral de schema no import dificulta testes e scripts.
-Recomendação: ler `DEBUG`, `HOST`, `PORT`, `SECRET_KEY` e URI do ambiente via classe de config; mover `db.create_all()` para a factory/`__main__` e aceitar `PORT` por ambiente — Playbook T02.
-Contrato: preservado (comando `python app.py` segue subindo na porta 5000 por default)
+Arquivo: app.py:11-33
+Ocorrências: Nenhuma adicional
+Descrição: `app.run(debug=True, host='0.0.0.0', port=5000)` (app.py:33) ativa o debugger do Werkzeug (execução remota de código) exposto em todas as interfaces. A configuração (URI, flags, `SECRET_KEY`) está fixa no entry point (app.py:11-13) e `db.create_all()` roda no import do módulo (app.py:30-31).
+Impacto: execução remota de código via debugger em produção; impossível configurar ambientes diferentes sem editar código; schema criado como efeito colateral de import.
+Recomendação: mover configuração para uma camada dedicada lendo ambiente; `debug`, `host` e `port` vindos de config com defaults seguros; `db.create_all()` chamado explicitamente numa factory/composition root — Playbook T02, T11.
+Contrato: preservado (porta e host passam a aceitar override por ambiente, mantendo defaults)
 
 ### F-07 [MEDIUM] Query N+1 (AP-13)
 Arquivo: routes/task_routes.py:41-57
-Ocorrências: routes/user_routes.py:22 (`len(u.tasks)` por usuário em laço), routes/report_routes.py:56-61 (`Task.query.filter_by(user_id=u.id)` por usuário), routes/report_routes.py:163 (`Task.query.filter_by(category_id=c.id).count()` por categoria)
-Descrição: `get_tasks` consulta `User.query.get` e `Category.query.get` dentro do laço sobre todas as tasks (task_routes.py:42-57). `summary_report` roda uma query por usuário (report_routes.py:56) e `get_categories` uma contagem por categoria (report_routes.py:163). Além disso, `task_stats`/`summary_report` disparam vários `COUNT(*)` por status/prioridade que caberiam num agrupamento.
-Impacto: número de consultas cresce linearmente com o volume; listagens e relatórios ficam lentos com muitos registros.
-Recomendação: usar `joinedload`/`selectinload` ou joins e agregações `GROUP BY` na camada de dados — Playbook T08.
+Ocorrências: routes/user_routes.py:22 (`len(u.tasks)` por usuário na listagem), routes/report_routes.py:56 (tasks por usuário em laço), routes/report_routes.py:163 (`Task.query.filter_by(category_id=c.id).count()` por categoria)
+Descrição: `get_tasks` executa `User.query.get(t.user_id)` e `Category.query.get(t.category_id)` dentro do laço sobre todas as tasks (task_routes.py:42,51) — uma consulta por item. `get_users` acessa `len(u.tasks)` (lazy) por usuário; `summary_report` consulta tasks por usuário em laço; `get_categories` conta tasks por categoria em laço.
+Impacto: o tempo de resposta cresce linearmente com o volume; listagens disparam centenas de consultas.
+Recomendação: usar `joinedload`/`selectinload` ou agregações com `GROUP BY` nos repositórios — Playbook T08.
 Contrato: preservado
 
 ### F-08 [MEDIUM] Validação ausente ou duplicada (AP-14)
-Arquivo: routes/task_routes.py:96-114
-Ocorrências: routes/task_routes.py:166-213 (mesmas regras de título/status/prioridade repetidas em `update_task`), routes/user_routes.py:61 e routes/user_routes.py:106 (regex de e-mail duplicado), utils/helpers.py:57-108 (`process_task_data`, validador completo nunca chamado), utils/helpers.py:19-55 (`validate_email`, `is_valid_color` etc. mortos)
-Descrição: as regras de tamanho de título (3–200), status válido e prioridade 1–5 são escritas à mão em `create_task` e de novo em `update_task`. O regex de e-mail aparece literal em dois handlers. Existe um validador pronto (`process_task_data`) e vários helpers de validação em `utils/helpers.py` que **nenhum** handler usa (ver F-16). Em `update_task`, `data['priority'] < 1` (task_routes.py:182) assume inteiro: um valor string resultaria em erro 500.
-Impacto: regras divergem com o tempo entre criar e atualizar; entrada inválida pode gerar 500; validador correto fica apodrecendo sem uso.
-Recomendação: centralizar validação num schema único (usar `marshmallow`, já declarado) consumido por create e update — Playbook T09.
+Arquivo: routes/task_routes.py:85-213
+Ocorrências: routes/user_routes.py:54-72 vs 102-122 (validação de email/role/senha repetida em create e update), utils/helpers.py:57-108 (`process_task_data` — validador completo nunca chamado), routes/task_routes.py:113 (`priority < 1` sem conversão de tipo)
+Descrição: as validações de título (3-200), status (enum literal), prioridade (1-5) e data estão copiadas entre `create_task` e `update_task` (task_routes.py:96-114 e 166-205). O mesmo vale para email/role/senha em `create_user`/`update_user`. Existe um validador pronto (`process_task_data`, helpers.py:57) que nenhuma rota usa. `priority` é comparado sem conversão (`data['priority'] < 1`), gerando 500 se vier como string.
+Impacto: regras divergentes entre endpoints, erros 500 com entrada inválida, manutenção duplicada.
+Recomendação: centralizar validação numa função/serviço por entidade, reutilizada em create e update — Playbook T09. (Marshmallow está declarado mas não usado — ver F-16.)
 Contrato: preservado
 
 ### F-09 [MEDIUM] Tratamento de erro não centralizado (AP-15)
 Arquivo: routes/task_routes.py:62
-Ocorrências: routes/task_routes.py:236 (`except:` nu), routes/task_routes.py:151-154, routes/task_routes.py:221-223, routes/user_routes.py:87-90, routes/user_routes.py:130-132, routes/user_routes.py:149-151, routes/report_routes.py:186-188, routes/report_routes.py:207-209, routes/report_routes.py:221-223 (blocos `except ... rollback ... jsonify(erro) 500` repetidos); ausência de `@app.errorhandler`
-Descrição: `get_tasks` e `delete_task` usam `except:` nu (task_routes.py:62,236), que engole qualquer erro e sempre responde 500 genérico. O padrão `try/except Exception/rollback/return 500` é copiado em quase todos os handlers de escrita. Não há handler de erro global registrado.
-Impacto: bugs silenciosos, respostas inconsistentes e duplicação do tratamento de erro em cada handler.
-Recomendação: registrar `@app.errorhandler` por tipo (validação→400, não encontrado→404, genérico→500) e remover os `try/except` repetidos dos handlers — Playbook T10.
-Contrato: preservado (mesmos status codes e formato `{"error": ...}`)
+Ocorrências: routes/task_routes.py:62,151,221,236; routes/user_routes.py:87,130,149; routes/report_routes.py:186,207,221 (blocos `except`/`except:` espalhados), app.py (nenhum `@app.errorhandler`)
+Descrição: cada handler trata exceções à sua maneira — `except:` nu em `get_tasks` (task_routes.py:62) engole qualquer erro e devolve 500 genérico; os demais repetem `except Exception` com rollback e mensagem própria. Não há handler global (`register_error_handler`).
+Impacto: formatos de erro inconsistentes, bugs silenciosos (o `except:` nu mascara a causa), duplicação.
+Recomendação: registrar um error handler central (middleware) que traduz exceções para JSON padronizado; remover os `try/except` genéricos dos handlers — Playbook T10.
+Contrato: preservado (mantém status e formato `{"error": ...}`)
 
 ### F-10 [MEDIUM] CORS permissivo (AP-16)
 Arquivo: app.py:15
 Ocorrências: Nenhuma adicional
-Descrição: `CORS(app)` (app.py:15) habilita CORS para qualquer origem, sem restrição de `origins`/`resources`.
+Descrição: `CORS(app)` libera todas as origens sem restrição de `origins`/`resources`. Não há `supports_credentials`, então permanece MEDIUM.
 Impacto: qualquer site pode chamar a API a partir do navegador de um usuário.
-Recomendação: restringir `origins` a uma lista configurável por ambiente — Playbook T02.
-Contrato: preservado (sem credenciais cross-origin no fluxo atual)
+Recomendação: restringir origens via configuração (lista de origens permitidas) — Playbook T02.
+Contrato: preservado (requisições same-origin e server-to-server, como o smoke test, não são afetadas)
 
-### F-11 [MEDIUM] Listagem sem paginação (AP-17)
-Arquivo: routes/task_routes.py:14
-Ocorrências: routes/task_routes.py:266 (search), routes/user_routes.py:12, routes/report_routes.py:159, routes/report_routes.py:30 (carrega todas as tasks em memória)
-Descrição: `get_tasks`, `search_tasks`, `get_users`, `get_categories` e `summary_report` devolvem/consomem `Model.query.all()` sem limite.
-Impacto: memória e tempo de resposta crescem com o volume; uma tabela grande pode derrubar o endpoint.
-Recomendação: paginação **opcional** (`?page`/`?per_page`) preservando o formato de lista quando os parâmetros não são enviados — Playbook T17.
-Contrato: preservado (paginação só quando solicitada)
-
-### F-12 [MEDIUM] Integridade referencial não garantida (AP-18)
+### F-11 [MEDIUM] Integridade referencial não garantida (AP-18)
 Arquivo: routes/user_routes.py:140-142
-Ocorrências: routes/report_routes.py:211-223 (delete_category não trata tasks com aquele `category_id`), models/task.py:13-14 (FKs sem `ondelete`)
-Descrição: `delete_user` faz cascata manual apagando as tasks do usuário em laço (user_routes.py:140-142). `delete_category` apaga a categoria sem tratar as tasks que a referenciam, deixando `category_id` órfão. As FKs em `Task` (models/task.py:13-14) não definem `ondelete`, e o SQLite não força `PRAGMA foreign_keys` por padrão.
-Impacto: tasks com `category_id` apontando para categoria inexistente; relatórios com dados inconsistentes.
-Recomendação: definir comportamento explícito de FK (cascade/set null) no modelo e tratar dependentes dentro de uma operação transacional de serviço — Playbook T15.
+Ocorrências: routes/task_routes.py:225-238 (delete_task), routes/report_routes.py:211-223 (delete_category), database.py:1-3 (sem `PRAGMA foreign_keys`)
+Descrição: `delete_user` apaga as tasks do usuário em laço manual (user_routes.py:140-142). Já `delete_category` e `delete_task` removem o registro sem tratar as tasks que referenciam `category_id`/`user_id`, deixando FKs apontando para registros inexistentes. O SQLite não tem `PRAGMA foreign_keys = ON`, então as FKs declaradas nos models não são aplicadas.
+Impacto: tasks órfãs após remover uma categoria; relatórios referenciando entidades inexistentes.
+Recomendação: declarar cascata/`ondelete` no relacionamento do ORM e ativar `PRAGMA foreign_keys` no SQLite; remover a cascata manual — Playbook T15.
 Contrato: preservado
 
-### F-13 [MEDIUM] APIs deprecated (AP-19)
-Arquivo: models/task.py:15
-Ocorrências: `datetime.utcnow()` em models/task.py:15-16, models/category.py:11, models/user.py:14, routes/task_routes.py:31,72,215,285, routes/user_routes.py:172, routes/report_routes.py:35,42,45,46,71,133; `Model.query.get()` (API legada SQLAlchemy 2.x) em routes/task_routes.py:42,51,67,158,227, routes/user_routes.py:29,94,117(indireto),136,155, routes/report_routes.py:105,192,213 (16 ocorrências de `.query.get(`)
-Descrição: `datetime.utcnow()` está deprecated desde o Python 3.12 (substituto `datetime.now(timezone.utc)`). `Model.query.get(id)` é API legada no SQLAlchemy 2.x — confirmado em runtime com `LegacyAPIWarning` (ver `.refactor-arch/deprecation-evidence.log`); substituto `db.session.get(Model, id)`.
-Impacto: avisos de depreciação hoje; quebra em versões futuras do Python/SQLAlchemy.
-Recomendação: trocar por `datetime.now(timezone.utc)` e `db.session.get(Model, id)` ao mover o acesso a dados para a camada de modelos/repositórios — Playbook T12.
-Contrato: preservado (o campo de data continua serializado via `str(...)`)
+### F-12 [MEDIUM] API deprecated (AP-19)
+Arquivo: models/task.py:15-16
+Ocorrências: `datetime.utcnow()` em 18 pontos (models/task.py:15-16, models/user.py:14, routes/task_routes.py:31,72,215,285, routes/user_routes.py:172, routes/report_routes.py:35,42,45,71, utils/helpers.py:38, seed.py); `Model.query.get()` em 16 pontos (routes/task_routes.py:67,158,227 etc., routes/user_routes.py:29,94,136,155, routes/report_routes.py:105,192,213)
+Descrição: `datetime.utcnow()` está deprecated desde o Python 3.12 (substituto `datetime.now(timezone.utc)`); no runtime atual (3.9.6) não emite warning, mas é incompatível com versões futuras. `Model.query.get()` é API legada do SQLAlchemy 2.0 — confirmado em runtime: importar e executar `Task.query.get(1)` emite `LegacyAPIWarning` (SQLAlchemy 2.0.52). Substituto: `db.session.get(Model, id)`.
+Impacto: quebra em upgrades de runtime/ORM; warnings poluindo logs.
+Recomendação: trocar `datetime.utcnow()` por `datetime.now(timezone.utc)` e `Model.query.get()` por `db.session.get(Model, id)` nos repositórios — Playbook T12.
+Contrato: preservado
+
+### F-13 [MEDIUM] Serialização manual duplicada (AP-24)
+Arquivo: routes/task_routes.py:16-59
+Ocorrências: routes/user_routes.py:15-24 (get_users monta dict sem `password`), routes/user_routes.py:162-181 (get_user_tasks monta subconjunto), models/task.py:23-36 (`to_dict` existente)
+Descrição: `get_tasks` remonta campo a campo o dicionário da task (task_routes.py:17-28) duplicando `Task.to_dict()`, e recalcula `overdue` inline. Escalado para MEDIUM porque as cópias divergem de forma perigosa: `get_users` (user_routes.py:15-24) omite `password`, enquanto `User.to_dict()` (F-02) o inclui — o mesmo recurso é serializado com e sem o segredo conforme a rota.
+Impacto: inconsistência de contrato entre rotas e risco de vazamento conforme o serializador usado.
+Recomendação: um único serializador por entidade (sem campos sensíveis), reutilizado por todas as rotas; `overdue` vindo do serviço — Playbook T13.
+Contrato: preservado (as chaves públicas atuais são mantidas, exceto `password`, tratado em F-02)
 
 ### F-14 [LOW] Logging via `print` (AP-20)
 Arquivo: routes/task_routes.py:149
-Ocorrências: routes/task_routes.py:153,219,234, routes/user_routes.py:83,89,147, services/notification_service.py:21,24
-Descrição: handlers e serviço usam `print(...)` para diagnóstico (ex.: "Task criada", "ERRO: ...") sem níveis nem destino configurável. (Os `print` em seed.py são progresso de script CLI — falso positivo, preservados.)
-Impacto: logs sem estrutura, nível ou controle de destino.
-Recomendação: usar o módulo `logging` com níveis apropriados — Playbook T16.
+Ocorrências: routes/task_routes.py:153,219,234; routes/user_routes.py:83,89,147; services/notification_service.py:21,24. `print` em seed.py é falso positivo (script de operador).
+Descrição: diagnóstico via `print()` em handlers e no serviço, sem níveis nem destino configurável (11 ocorrências fora do seed).
+Impacto: logs sem estrutura nem controle de verbosidade.
+Recomendação: usar o módulo `logging` com níveis — Playbook T16.
 Contrato: preservado
 
 ### F-15 [LOW] Magic numbers e literais duplicados (AP-21)
-Arquivo: routes/task_routes.py:110
-Ocorrências: lista de status `['pending','in_progress','done','cancelled']` repetida em routes/task_routes.py:110,177, models/task.py:39, utils/helpers.py:75,110; tamanhos de título 3/200 em routes/task_routes.py:96-100,167-170; prioridade 1/5 em routes/task_routes.py:113,182, models/task.py:46; senha mínima 4 em routes/user_routes.py:64,115; roles em routes/user_routes.py:71,120; constantes `VALID_STATUSES`/`MAX_TITLE_LENGTH` etc. declaradas em utils/helpers.py:110-116 mas **não usadas**
-Descrição: valores de negócio espalhados como literais, enquanto existem constantes nomeadas correspondentes nunca referenciadas.
-Impacto: mudança de regra exige editar vários pontos; risco de divergência.
-Recomendação: consolidar em constantes/enums num único módulo e referenciá-las — Playbook T16.
+Arquivo: routes/task_routes.py:96-114
+Ocorrências: listas `['pending','in_progress','done','cancelled']` em task_routes.py:110,177 e models/task.py:39; `['user','admin','manager']` em user_routes.py:71,120; limites de título 3/200 e prioridade 1/5 repetidos; senha mínima 4 em user_routes.py:64,115. Constantes já declaradas (e não usadas) em utils/helpers.py:110-116.
+Descrição: limiares e enums de negócio espalhados como literais, embora `utils/helpers.py:110-116` já declare `VALID_STATUSES`, `VALID_ROLES`, `MAX_TITLE_LENGTH` etc. — nunca importados.
+Impacto: alterar uma regra exige caçar literais em vários arquivos.
+Recomendação: centralizar constantes e reusá-las na validação — Playbook T16.
 Contrato: preservado
 
 ### F-16 [LOW] Código morto (AP-22)
 Arquivo: services/notification_service.py:1-49
-Ocorrências: imports não usados em app.py:7 (`os, sys, json`), routes/task_routes.py:7 (`json, os, sys, time`), routes/user_routes.py:6 (`hashlib, json`), routes/report_routes.py:8 (`json`); `utils/helpers.py` inteiro sem uso efetivo (`format_date`/`calculate_percentage` importados em report_routes.py:7 mas nunca chamados; `process_task_data`, `validate_email`, `sanitize_string`, `generate_id`, `log_action`, `is_valid_color` sem referência); dependências declaradas e nunca importadas: `marshmallow`, `requests`, `python-dotenv`
-Descrição: `NotificationService` nunca é instanciado em lugar algum (também exibe AP-02 — creds SMTP, AP-08 — `self.notifications = []` como armazenamento em memória, e AP-11 — `smtplib.SMTP` acoplado; todos sem impacto por estar morto). Vários imports e todo o `utils/helpers.py` não participam da execução. Três dependências do `requirements.txt` jamais são importadas.
-Impacto: ruído, falsa impressão de funcionalidade, superfície de manutenção desnecessária.
-Recomendação: remover imports e código mortos; decidir entre reaproveitar `marshmallow` (validação, T09) e remover `requests`/`python-dotenv` do manifesto, ou passar a usá-los — Playbook T16.
+Ocorrências: utils/helpers.py (`format_date`/`calculate_percentage` importados em report_routes.py:7 mas nunca usados; `validate_email`, `sanitize_string`, `generate_id`, `log_action`, `parse_date`, `is_valid_color`, `process_task_data` nunca chamados); imports não usados `json/os/sys` em app.py:7, `json/os/sys/time` em task_routes.py:7, `hashlib/json` em user_routes.py:6, `json` em report_routes.py:8; dependências `marshmallow`, `requests`, `python-dotenv` declaradas em requirements.txt e nunca importadas
+Descrição: `NotificationService` (módulo inteiro) nunca é instanciado. Vários utilitários de `helpers.py` não têm chamador. Três dependências declaradas não são usadas. Diversos imports ociosos.
+Impacto: superfície de manutenção e dependências inúteis; `requests`/`marshmallow` carregam risco de supply chain sem benefício.
+Recomendação: remover módulo/funções/imports/dependências sem uso; manter apenas o que o código vivo consome — Playbook T16.
 Contrato: preservado
 
 ### F-17 [LOW] Nomenclatura pobre e código verboso (AP-23)
 Arquivo: models/task.py:38-60
-Ocorrências: models/task.py:45-48 (`validate_priority`), models/task.py:50-60 (`is_overdue`, pirâmide de `if/else`), models/user.py:34-38 (`is_admin` com `if/else` retornando bool), cálculo de atraso em pirâmide em routes/task_routes.py:30-39,71-80, routes/user_routes.py:171-180
-Descrição: funções que fazem `if cond: return True else: return False` em vez de `return cond`; aninhamento profundo de `if` para calcular atraso; variáveis de uma letra (`u`, `t`, `c`, `p`, `td`).
-Impacto: legibilidade e manutenção.
-Recomendação: simplificar para expressões booleanas e nomes descritivos — Playbook T16. (Chaves JSON públicas não são renomeadas.)
-Contrato: preservado
-
-### F-18 [LOW] Serialização manual duplicada (AP-24)
-Arquivo: routes/task_routes.py:17-28
-Ocorrências: routes/user_routes.py:162-169 (task remontada à mão), models/task.py:23-36 (`to_dict` existente), cálculo de atraso duplicado em routes/task_routes.py:30-39,71-80, routes/user_routes.py:171-180, routes/report_routes.py:34-37,132-135; serialização de usuário divergente (routes/user_routes.py:15-24 omite senha vs. models/user.py:16-25 inclui) — cruzamento com F-02
-Descrição: a conversão de `Task` para dict é reescrita campo a campo em `get_tasks` e `get_user_tasks`, embora `Task.to_dict()` já exista. O cálculo de "overdue" aparece copiado em quatro lugares. A serialização de `User` diverge entre listagem (sem senha) e detalhe/login (com senha — perigoso, F-02).
-Impacto: campos e formatos podem divergir entre endpoints; a divergência já expõe senha em uns e não em outros.
-Recomendação: unificar a serialização num schema/serializer por entidade e um único `is_overdue` no modelo — Playbook T13.
-Contrato: preservado (o shape de cada endpoint é mantido, exceto a remoção de `password` tratada em BC-01)
+Ocorrências: models/user.py:34-38 (`is_admin` com if/else retornando bool), models/task.py:50-60 (`is_overdue` em pirâmide de if), variáveis de 1 letra `t/u/c/p/cat` em task_routes.py/user_routes.py/report_routes.py
+Descrição: `validate_status`/`is_overdue`/`is_admin` usam `if cond: return True else: return False` e pirâmides de `if` aninhado que cabem numa expressão booleana; identificadores de uma letra nos laços de serialização.
+Impacto: legibilidade e verbosidade; nenhuma chave JSON pública é afetada.
+Recomendação: simplificar para expressões booleanas e nomes descritivos em identificadores internos — Playbook T16.
+Contrato: preservado (chaves JSON públicas não são renomeadas)
 
 ## APIs deprecated
 | API ou dependência | Local | Substituto | Evidência |
 |---|---|---|---|
-| `datetime.utcnow()` | models/task.py:15-16, models/category.py:11, models/user.py:14, routes/task_routes.py:31,72,215,285, routes/user_routes.py:172, routes/report_routes.py:35,42,45,46,71,133 | `datetime.now(timezone.utc)` | deprecated no Python 3.12 (catálogo AP-19); runtime 3.9.6 não emite warning |
-| `Model.query.get(id)` | 16 ocorrências de `.query.get(` em routes/*.py (ex.: task_routes.py:67, user_routes.py:29, report_routes.py:105) | `db.session.get(Model, id)` | `LegacyAPIWarning` confirmado em runtime — `.refactor-arch/deprecation-evidence.log` |
-| `marshmallow`, `requests`, `python-dotenv` | requirements.txt:4-6 | — (nunca importadas) | busca por imports: nenhuma ocorrência (F-16) |
+| `datetime.utcnow()` | models/task.py:15-16 e +16 pontos | `datetime.now(timezone.utc)` | deprecated no Python 3.12 (busca no código; runtime 3.9.6 não emite warning) |
+| `Model.query.get(id)` | routes/*.py (16 pontos) | `db.session.get(Model, id)` | `LegacyAPIWarning` emitido em runtime (SQLAlchemy 2.0.52) |
+| MD5 para senha | models/user.py:29,32 | hash com salt (werkzeug) | algoritmo fraco — tratado em F-03 (AP-04) |
 
 ## Breaking Changes propostos
 | # | Rota | Mudança no contrato | Finding que justifica |
 |---|---|---|---|
-| BC-01 | POST /users, PUT /users/<id>, GET /users/<id>, POST /login | remove a chave `password` do corpo da resposta (em `/login`, de `user.password`); todas as demais chaves permanecem | F-02 — hash de senha exposto em resposta a requisição anônima (CRITICAL de segurança) |
+| BC-01 | GET /users/<id> | remove a chave `password` da resposta; demais chaves permanecem | F-02 — hash de senha exposto sem autenticação |
+| BC-02 | POST /users | remove a chave `password` da resposta | F-02 — hash de senha exposto |
+| BC-03 | PUT /users/<id> | remove a chave `password` da resposta | F-02 — hash de senha exposto |
+| BC-04 | POST /login | remove `password` de dentro de `user`; `token` e demais chaves permanecem | F-02 — hash de senha exposto |
+| BC-05 | DELETE /tasks/<id> | passa a exigir `Authorization: Bearer <token>`; chamada anônima responde 401 (antes 404/200) | F-04 — remoção destrutiva sem autenticação |
+| BC-06 | DELETE /users/<id> | passa a exigir `Authorization: Bearer <token>`; chamada anônima responde 401 | F-04 — remoção destrutiva sem autenticação |
+| BC-07 | DELETE /categories/<id> | passa a exigir `Authorization: Bearer <token>`; chamada anônima responde 401 | F-04 — remoção destrutiva sem autenticação |
 
 ## Plano de refatoração
-Ponto de partida: camadas parciais (pastas por papel existem, mas responsabilidades vazam para as rotas). A refatoração **refina** a estrutura, sem renomear o que já cumpre o papel certo (`models/`, `database.py`, `seed.py`).
+Estrutura-alvo (refina as camadas parciais já existentes):
 
-Estrutura-alvo (resumo):
 ```
-app.py                 # composition root / factory + entry point (__main__)
-config.py              # configuração e segredos via ambiente (T02)
-database.py            # extensão db (mantido)
-extensions.py?         # CORS restrito (T02)  [ou dentro da factory]
-errors.py              # handlers de erro globais (T10)
-models/                # entidades + acesso a dados por domínio (T01/T03/T05/T08/T12/T15)
-  user.py  task.py  category.py
-services/              # regras de negócio e integrações (T04/T06/T09)
-  task_service.py  user_service.py  category_service.py  report_service.py
-  notification_service.py  (corrigido ou removido — F-16)
-schemas/               # validação + serialização marshmallow (T09/T13)
-  task_schema.py  user_schema.py  category_schema.py
-routes/ (views/controllers)  # controllers finos + registro de rotas (T04/T13/T14/T17)
-  task_routes.py  user_routes.py  category_routes.py  report_routes.py
-utils/helpers.py       # só o que for de fato usado (T16)
-seed.py                # mantido (contrato de execução)
+config.py                  (config)         — settings de ambiente, SECRET_KEY, CORS, debug/host/port (T02)
+database.py                (infra)          — db = SQLAlchemy() + PRAGMA foreign_keys (T15)
+constants.py               (domínio)        — enums/limites centralizados (T16)
+models/                    (models)         — entidades + repositórios por domínio
+  task.py, user.py, category.py             — entidade + to_dict sem segredos (T13), hash seguro (T05)
+  repositories.py                           — acesso a dados sem N+1, db.session.get (T08, T12)
+services/                  (services)       — regra de negócio e integrações
+  task_service.py, user_service.py, report_service.py (T04, T09)
+  auth_service.py                           — token assinado + verificação (T14)
+controllers/               (controllers)    — orquestram requisição/resposta finos (T04)
+routes/                    (views)          — blueprints mapeando rota→controller + serializers (T13, T14)
+middlewares/error_handler.py (middleware)   — tratamento de erro central (T10)
+app.py                     (composition)    — factory create_app, monta dependências (T11)
 ```
-Ordem de execução (por camada): config → models → services → controllers → views/routes → middlewares (erros) → composition root → limpeza. Transformações principais: T02 (config/CORS/db.create_all), T05 (hash seguro), T13 (serializer sem senha), T04 (extrair regra/dados para serviços), T08 (N+1), T09 (schemas), T10 (errorhandlers), T12 (deprecated), T15 (integridade), T16 (limpeza), T17 (paginação opcional), T14 (assinar token, sem impor auth).
+
+Ordem de execução: config → models/repositories → services → controllers → routes → middlewares → composition root → limpeza (remover notification_service, helpers mortos, imports e deps sem uso).
 
 ================================
-Total: 18 findings
+Total: 17 findings
 ================================

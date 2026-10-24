@@ -1,9 +1,4 @@
-"""Hash de senha com KDF e salt (T05 / AP-04).
-
-Usa pbkdf2:sha256 do Werkzeug (dependência do Flask). Mantém compatibilidade
-com os hashes MD5 legados gravados por seeds antigos, verificando-os sem gravar
-o formato antigo de volta.
-"""
+"""Hash de senha com KDF e salt (substitui MD5 — T05)."""
 import hashlib
 import hmac
 import re
@@ -11,15 +6,16 @@ import re
 from werkzeug.security import check_password_hash, generate_password_hash
 
 _LEGACY_MD5 = re.compile(r"^[a-f0-9]{32}$")
-_METHOD = "pbkdf2:sha256"
+METHOD = "pbkdf2:sha256:600000"
 
 
 def hash_password(plain):
-    return generate_password_hash(plain, method=_METHOD)
+    return generate_password_hash(plain, method=METHOD)
 
 
 def verify_password(stored, plain):
+    """Retorna (senha_confere, precisa_regravar)."""
     if stored and _LEGACY_MD5.match(stored):
         legacy = hashlib.md5(plain.encode()).hexdigest()
-        return hmac.compare_digest(legacy, stored)
-    return check_password_hash(stored, plain)
+        return hmac.compare_digest(legacy, stored), True
+    return check_password_hash(stored, plain), False

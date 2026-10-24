@@ -1,67 +1,62 @@
-"""Validadores reutilizáveis, compartilhados entre criação e atualização (T09).
+"""Validação de entrada reutilizável, com as mesmas mensagens e ordem do original (T09)."""
+import re
 
-Preservam exatamente as mensagens e a ordem de verificação do código original.
-"""
-from datetime import datetime
-
+from errors import ValidationError
 from constants import (
-    MAX_PAGE_SIZE,
+    DEFAULT_PRIORITY,
+    EMAIL_REGEX,
+    MAX_PRIORITY,
     MAX_TITLE_LENGTH,
+    MIN_PASSWORD_LENGTH,
+    MIN_PRIORITY,
     MIN_TITLE_LENGTH,
-    PRIORITY_MAX,
-    PRIORITY_MIN,
     TASK_STATUSES,
 )
-from errors import ValidationError
 
 
-def require_payload(data):
+def validate_task_create(data):
     if not data:
-        raise ValidationError("Dados inválidos")
-
-
-def validate_title(title, required=True):
-    if required and not title:
-        raise ValidationError("Título é obrigatório")
+        raise ValidationError('Dados inválidos')
+    title = data.get('title')
+    if not title:
+        raise ValidationError('Título é obrigatório')
     if len(title) < MIN_TITLE_LENGTH:
-        raise ValidationError("Título muito curto")
+        raise ValidationError('Título muito curto')
     if len(title) > MAX_TITLE_LENGTH:
-        raise ValidationError("Título muito longo")
-    return title
-
-
-def validate_status(status):
+        raise ValidationError('Título muito longo')
+    status = data.get('status', 'pending')
+    priority = data.get('priority', DEFAULT_PRIORITY)
     if status not in TASK_STATUSES:
-        raise ValidationError("Status inválido")
-    return status
+        raise ValidationError('Status inválido')
+    if priority < MIN_PRIORITY or priority > MAX_PRIORITY:
+        raise ValidationError('Prioridade deve ser entre 1 e 5')
+    return {
+        'title': title,
+        'description': data.get('description', ''),
+        'status': status,
+        'priority': priority,
+        'user_id': data.get('user_id'),
+        'category_id': data.get('category_id'),
+        'due_date': data.get('due_date'),
+        'tags': data.get('tags'),
+    }
 
 
-def validate_priority(priority):
-    if priority < PRIORITY_MIN or priority > PRIORITY_MAX:
-        raise ValidationError("Prioridade deve ser entre 1 e 5")
-    return priority
-
-
-def parse_due_date(value, message):
-    try:
-        return datetime.strptime(value, "%Y-%m-%d")
-    except ValueError:
-        raise ValidationError(message)
-
-
-def normalize_tags(tags):
-    if isinstance(tags, list):
-        return ",".join(tags)
-    return tags
-
-
-def pagination_args(args):
-    """Paginação opt-in (T17): sem `limit`, devolve (None, 0) e nada muda."""
-    if "limit" not in args:
-        return None, 0
-    try:
-        limit = min(int(args["limit"]), MAX_PAGE_SIZE)
-        offset = int(args.get("offset", 0))
-    except ValueError:
-        raise ValidationError("Parâmetros de paginação inválidos")
-    return limit, offset
+def validate_user_create(data):
+    if not data:
+        raise ValidationError('Dados inválidos')
+    name = data.get('name')
+    email = data.get('email')
+    password = data.get('password')
+    role = data.get('role', 'user')
+    if not name:
+        raise ValidationError('Nome é obrigatório')
+    if not email:
+        raise ValidationError('Email é obrigatório')
+    if not password:
+        raise ValidationError('Senha é obrigatória')
+    if not re.match(EMAIL_REGEX, email):
+        raise ValidationError('Email inválido')
+    if len(password) < MIN_PASSWORD_LENGTH:
+        raise ValidationError('Senha deve ter no mínimo 4 caracteres')
+    return {'name': name, 'email': email, 'password': password, 'role': role}

@@ -1,4 +1,4 @@
-"""Configuração da aplicação lida do ambiente uma única vez (T02)."""
+"""Camada de configuração: lê o ambiente uma única vez, com defaults seguros."""
 import os
 import secrets
 from dataclasses import dataclass
@@ -17,7 +17,7 @@ class Settings:
     secret_key: str
     database_uri: str
     cors_origins: object
-    admin_token: str
+    auth_token_max_age: int
 
     @classmethod
     def from_env(cls, environ=None):
@@ -40,10 +40,10 @@ class Settings:
         return cls(
             env=env,
             debug=_as_bool(environ.get("APP_DEBUG", "false")),
-            host=environ.get("APP_HOST", "0.0.0.0"),
+            host=environ.get("APP_HOST", "127.0.0.1"),
             port=int(environ.get("PORT", "5000")),
             secret_key=secret_key,
             database_uri=environ.get("DATABASE_URI", "sqlite:///tasks.db"),
             cors_origins=cors_origins,
-            admin_token=environ.get("ADMIN_TOKEN", ""),
+            auth_token_max_age=int(environ.get("AUTH_TOKEN_MAX_AGE", "86400")),
         )

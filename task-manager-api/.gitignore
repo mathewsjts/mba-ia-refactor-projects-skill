@@ -1,15 +1,1 @@
-# Ferramenta de refatoração
 .refactor-arch/
-
-# Ambientes e artefatos Python
-.venv/
-venv/
-__pycache__/
-*.pyc
-
-# Banco SQLite local
-instance/
-*.db
-
-# Variáveis de ambiente
-.env
