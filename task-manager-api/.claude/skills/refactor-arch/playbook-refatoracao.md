@@ -1382,12 +1382,14 @@ module.exports = { serializeUser };
 
 **Corrige:** AP-05 · **Contrato:** **Breaking Change** — declare sempre
 
+Aplica-se ao AP-05 em CRITICAL **e** em HIGH (regra 3 do `SKILL.md`). O finding só fica corrigido quando nenhuma rota destrutiva ou privilegiada responde a um cliente anônimo.
+
 | Situação | Ação |
 |---|---|
 | Executa SQL ou código enviado pelo cliente | **Remover** da API. Nenhuma proteção torna isso aceitável. |
 | Destruição em massa (reset de banco) | **Remover** da API; se for útil em desenvolvimento, oferecer como comando de linha de comando. |
-| Leitura ou gestão administrativa (relatórios financeiros, remoção de usuários) | **Proteger** com middleware de credencial administrativa lida da configuração. |
-| Token de autenticação falso | Emitir token assinado com biblioteca já disponível (`itsdangerous` vem com o Flask; `crypto.createHmac` no Node), mantendo a mesma chave JSON na resposta de login. Exigir token nas rotas é Breaking Change adicional. |
+| Leitura ou gestão administrativa (relatórios financeiros, remoção de usuários) sem login no projeto | **Proteger** com middleware de credencial administrativa lida da configuração (`X-Admin-Token`). |
+| Token de autenticação falso (o projeto tem login) | Duas partes, ambas obrigatórias: (a) emitir token assinado com biblioteca já disponível (`itsdangerous` vem com o Flask; `crypto.createHmac` no Node), mantendo a mesma chave JSON na resposta de login; (b) **exigir** esse token (`Authorization: Bearer <token>`) nas rotas destrutivas — no mínimo todo `DELETE` — e nas administrativas. Cada rota protegida é um `BC-xx` declarado. Só (a) deixa o finding **parcial**, o que é proibido para finding de segurança. |
 
 **Python — depois (proteção)**
 
@@ -1410,6 +1412,58 @@ def require_admin(view):
     return wrapper
 ```
 
+**Python — depois (token do login exigido nas rotas destrutivas)**
+
+```python
+# services/auth_service.py
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+
+
+class AuthService:
+    def __init__(self, secret_key, max_age_seconds=86400):
+        self._serializer = URLSafeTimedSerializer(secret_key, salt="auth-token")
+        self._max_age = max_age_seconds
+
+    def issue_token(self, user):
+        return self._serializer.dumps({"user_id": user.id})
+
+    def verify_token(self, token):
+        try:
+            return self._serializer.loads(token, max_age=self._max_age)
+        except (BadSignature, SignatureExpired):
+            return None
+```
+
+```python
+# middlewares/auth.py
+from functools import wraps
+
+from flask import g, jsonify, request
+
+
+def require_auth(auth_service):
+    def decorator(view):
+        @wraps(view)
+        def wrapper(*args, **kwargs):
+            scheme, _, token = request.headers.get("Authorization", "").partition(" ")
+            payload = auth_service.verify_token(token) if scheme == "Bearer" and token else None
+            if payload is None:
+                return jsonify({"error": "Não autorizado"}), 401
+            g.user_id = payload["user_id"]
+            return view(*args, **kwargs)
+        return wrapper
+    return decorator
+```
+
+```python
+# routes/task_routes.py
+bp.add_url_rule(
+    "/tasks/<int:task_id>", "delete_task", require_auth(auth_service)(controller.delete), methods=["DELETE"]
+)
+```
+
+Use a chave de erro que o projeto já usa (`error`, `erro`, texto puro).
+
 **JavaScript — depois (proteção)**
 
 ```js
@@ -1430,6 +1484,8 @@ module.exports = (config) => (req, res, next) => {
 **Armadilhas**
 - Sem `ADMIN_TOKEN` configurado, a rota protegida recusa tudo (falha fechada). Nunca libere quando a variável estiver vazia.
 - Para o smoke test continuar exercitando a rota, `smoke.sh` envia `X-Admin-Token: ${ADMIN_TOKEN}` nas duas execuções (o original ignora o header) e a validação sobe a aplicação com `ADMIN_TOKEN` definido — ver protocolo, seção A5.
+- Com token de login, `smoke.sh` faz o `POST /login`, guarda o `token` da resposta e o envia como `Authorization: Bearer` nas rotas protegidas; o original ignora o header. Inclua uma chamada anônima a cada rota protegida com id inexistente: 404 no baseline, 401 depois — é a divergência declarada que prova a proteção.
+- Token de login sem `max_age` vale para sempre; não use a mesma `SECRET_KEY` aleatória por processo se houver mais de um worker (tokens emitidos num não validam no outro) — leia-a da configuração (T02).
 
 ---
 

@@ -28,7 +28,7 @@ Ficam no mesmo diretório deste `SKILL.md` — a partir da raiz do projeto, `.cl
 
 1. **Nenhuma modificação antes da confirmação.** Até o usuário aprovar explicitamente no fim da Fase 2, você não cria, altera, move nem apaga arquivo algum do projeto. Exceções: escrever dentro de `.refactor-arch/` (diretório de trabalho da skill), instalar dependências declaradas e subir a aplicação para capturar o baseline.
 2. **Evidência, não estimativa.** Todo finding cita arquivo e linha(s) conferidos lendo o arquivo. Toda afirmação de sucesso na Fase 3 corresponde a uma saída real de comando. O que não pôde ser verificado é declarado como não verificado.
-3. **Contrato HTTP preservado.** Método, path, status code, tipo de corpo (JSON ou texto) e estrutura de chaves das respostas continuam iguais. A **única** exceção é a correção de um finding CRITICAL de segurança — e toda quebra desse tipo é declarada em `Breaking Changes propostos` no relatório, *antes* da confirmação.
+3. **Contrato HTTP preservado.** Método, path, status code, tipo de corpo (JSON ou texto) e estrutura de chaves das respostas continuam iguais. A **única** exceção é a correção de um finding **de segurança** de severidade CRITICAL **ou HIGH** (AP-01 a AP-05, AP-10, AP-16) — e toda quebra desse tipo é declarada em `Breaking Changes propostos` no relatório, *antes* da confirmação. Para AP-05 isso significa aplicar a T14 por completo, qualquer que seja a severidade: assinar um token falso não basta, as rotas privilegiadas ou destrutivas passam a exigir credencial.
 4. **Comandos de execução preservados.** Os comandos documentados para instalar, popular e subir a aplicação (README, `scripts` do manifesto, bloco `__main__`, scripts de seed) continuam funcionando depois da refatoração.
 5. **Adapte-se ao ponto de partida.** Um monolito é reestruturado; um projeto que já tem camadas é refinado. Não renomeie nem mova o que já cumpre o papel certo.
 6. **Não faça commit** nem altere o histórico git. Versionar é decisão do usuário.
@@ -72,7 +72,7 @@ Objetivo: produzir um relatório confiável e obter autorização para modificar
 2. Para **cada** anti-pattern do catálogo, aplique os sinais de detecção sobre os arquivos-fonte (busca textual e leitura do trecho). Confirme cada ocorrência lendo o código ao redor e descarte os falsos positivos descritos no catálogo.
 3. Consolide por causa raiz: várias ocorrências do mesmo anti-pattern com a mesma causa viram **um** finding com todas as localizações.
 4. Classifique a severidade pelo catálogo e aplique as regras de escalonamento.
-5. Leia `template-relatorio.md` e monte o relatório, incluindo `Breaking Changes propostos` — toda mudança de contrato que a Fase 3 fará, com o finding que a justifica.
+5. Leia `template-relatorio.md` e monte o relatório, incluindo `Breaking Changes propostos` — toda mudança de contrato que a Fase 3 fará, com o finding que a justifica. Toda rota que a T14 passará a proteger é um Breaking Change e entra nessa tabela.
 6. Grave o relatório em `.refactor-arch/relatorio-auditoria.md` e imprima-o **completo** no terminal.
 7. **PARE e peça confirmação** antes de qualquer modificação:
    - Se a ferramenta `AskUserQuestion` estiver disponível, use-a com as opções "Sim, prosseguir com a refatoração" e "Não, encerrar aqui".
@@ -94,7 +94,7 @@ Objetivo: reestruturar para MVC, eliminar os findings e provar que a aplicação
    6. **middlewares** — tratamento centralizado de erros (T10)
    7. **composition root** — montagem das dependências e entry point (T11)
    8. **limpeza** — código morto, imports, logging, constantes (T16); remova os arquivos antigos que ficaram vazios
-4. Todo finding do relatório termina em um de três estados: **corrigido**, **parcial** (dizendo o que falta) ou **não corrigido** (dizendo o motivo, ex.: exigiria quebra de contrato não autorizada). Nenhum finding é omitido.
+4. Todo finding do relatório termina em um de três estados: **corrigido**, **parcial** (dizendo o que falta) ou **não corrigido** (dizendo o motivo, ex.: exigiria quebra de contrato não autorizada). Nenhum finding é omitido. Finding de segurança CRITICAL ou HIGH nunca termina parcial ou não corrigido por motivo de contrato — a quebra necessária é declarada e aplicada (regra 3).
 5. Prefira bibliotecas já declaradas no manifesto e a biblioteca padrão. Se adicionar uma dependência, atualize o manifesto e instale-a.
 6. Leia de novo `protocolo-validacao.md` e execute a **Parte B — Validação**: mesmo estado inicial do baseline, boot pelo comando documentado, replay de `smoke.sh`, `diff` contra `baseline.txt` e varredura de anti-patterns remanescentes.
 7. Toda divergência que **não** esteja em `Breaking Changes propostos` é regressão: corrija e valide de novo. Limite de 5 ciclos; se não convergir, pare e reporte exatamente o que diverge.

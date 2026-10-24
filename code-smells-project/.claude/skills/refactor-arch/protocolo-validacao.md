@@ -112,6 +112,8 @@ Copie o modelo e preencha apenas a seção de requisições.
 - **Paths entre aspas simples.** Shells como o zsh expandem `?` e `*` e abortam o comando.
 - Todo corpo JSON é enviado com `Content-Type: application/json` (o modelo já faz isso).
 - **Rotas administrativas** enviam `-H "X-Admin-Token: ${ADMIN_TOKEN:-}"` nas duas execuções. O original ignora o header; a versão protegida (T14) o exige.
+- **Projeto com login:** logo depois do `call POST '/login'` com credenciais válidas do seed, guarde o token da resposta (`TOKEN="$(token_from_body)"`) e envie `-H "Authorization: Bearer ${TOKEN:-}"` em toda rota destrutiva (`DELETE`) e administrativa, nas duas execuções. O original ignora o header; a versão protegida (T14) o exige.
+- **Prova de proteção:** para cada rota que a T14 vai proteger, inclua uma chamada **anônima** com id inexistente (`/recurso/999999`, sem header). No baseline ela responde 404 sem apagar nada; depois, 401 — divergência declarada no `BC-xx` correspondente.
 
 ```bash
 #!/usr/bin/env bash
@@ -172,6 +174,11 @@ call() {
   printf '%-7s %-45s %s %s\n' "$method" "$path" "$status" "$(shape "$BODY_FILE")"
 }
 
+# Lê o token da última resposta (chave `token` na raiz; ajuste se o login usa outra).
+token_from_body() {
+  python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("token", ""))' "$BODY_FILE" 2>/dev/null
+}
+
 # ---------------- requisições (a ordem importa) ----------------
 call GET    '/health'
 call GET    '/recursos'
@@ -181,9 +188,14 @@ call GET    '/recursos/busca?q=exemplo'
 call POST   '/recursos' '{"nome":"Exemplo","valor":10}'
 call POST   '/recursos' '{}'
 call PUT    '/recursos/1' '{"nome":"Alterado","valor":20}'
+call POST   '/login' '{"email":"admin@exemplo.com","password":"senha-do-seed"}'
+TOKEN="$(token_from_body)"
 call GET    '/admin/relatorio' '' -H "X-Admin-Token: ${ADMIN_TOKEN:-}"
-call DELETE '/recursos/2'
+call DELETE '/recursos/999999'
+call DELETE '/recursos/2' '' -H "Authorization: Bearer ${TOKEN:-}"
 ```
+
+A linha `DELETE '/recursos/999999'` sem header é a prova de proteção; `DELETE '/recursos/2'` com o token é o caminho feliz. Em projeto sem login, remova o bloco do `/login` e o header `Authorization`.
 
 O modelo depende de `bash`, `curl` e `python3`. Sem `python3`, substitua a função `shape` por um equivalente em `node -e` com a mesma saída.
 

@@ -68,7 +68,7 @@ Estes greps também são usados na varredura final da validação (protocolo, Pa
 - **Configuração.** Um único objeto de configuração, criado uma vez no composition root. Nenhuma leitura de `os.environ` ou `process.env` espalhada pelo código.
 - **Serialização.** Uma função ou método por entidade, com lista explícita de campos públicos (T13).
 - **Erros.** Services lançam erros de domínio; o middleware central os traduz para HTTP (T10). Controllers não precisam de `try/except` para erros esperados.
-- **Contrato público intocado.** Paths, métodos, nomes de campos JSON e mensagens de erro continuam os mesmos, mesmo quando mal nomeados. Traduza nomes públicos para nomes internos num único ponto (controller ou validador).
+- **Contrato público intocado.** Paths, métodos, nomes de campos JSON e mensagens de erro continuam os mesmos, mesmo quando mal nomeados — exceto os Breaking Changes declarados (regra 3 do `SKILL.md`). Traduza nomes públicos para nomes internos num único ponto (controller ou validador).
 
 ---
 

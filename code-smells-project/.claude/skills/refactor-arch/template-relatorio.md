@@ -11,7 +11,7 @@ Referência da **Fase 2**. O relatório é gravado em `.refactor-arch/relatorio-
 5. **Contagens coerentes.** Os números do `Resumo` contam findings, não ocorrências. `Total` é a soma do resumo e bate com a quantidade de blocos `### F-`.
 6. **Descrição concreta.** Cite nomes de funções, rotas e trechos reais. Segredos aparecem redigidos: mostre só os primeiros caracteres (`'minha-chave-****'`, `pk_live_****`).
 7. **Recomendação acionável.** Diga o que fazer e aponte a transformação do playbook (`T01`…`T17`).
-8. **Contrato.** Todo finding declara se a correção preserva o contrato HTTP ou qual quebra (`BC-xx`) ela exige. Quebras só são aceitas para findings CRITICAL de segurança.
+8. **Contrato.** Todo finding declara se a correção preserva o contrato HTTP ou qual quebra (`BC-xx`) ela exige. Quebras só são aceitas para findings de segurança CRITICAL ou HIGH (regra 3 do `SKILL.md`) — e, nesses, a quebra necessária é proposta, não evitada: um AP-05 HIGH cuja correção exige proteger rotas declara um `BC-xx` por rota protegida.
 9. **APIs deprecated.** A seção é obrigatória. Sem ocorrências, escreva `Nenhuma API deprecated detectada` e diga como verificou (warnings em runtime, saída do instalador, busca pelos padrões do catálogo).
 
 ## Estrutura
