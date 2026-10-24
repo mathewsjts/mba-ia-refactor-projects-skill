@@ -9,7 +9,7 @@ Skill do Claude Code que analisa uma API backend legada, audita a codebase contr
 | Análise manual dos 3 projetos | ✅ Concluída — [seção A](#a-análise-manual) |
 | Skill `refactor-arch` (SKILL.md + 6 arquivos de referência) | ✅ Construída e testada contra os projetos originais — [seção B](#b-construção-da-skill) |
 | Execução da skill nos 3 projetos | ✅ Concluída — critérios de aceite atingidos em 3/3 — [seção C](#c-resultados) |
-| Relatórios em `reports/` e resultados | ✅ Concluídos — 22, 21 e 18 findings — [seção C](#c-resultados) |
+| Relatórios em `reports/` e resultados | ✅ Concluídos — 22, 21 e 17 findings — [seção C](#c-resultados) |
 
 ## Sumário
 
@@ -154,7 +154,7 @@ O `SKILL.md` é o **procedimento**: três fases, regras invioláveis e os format
 2. **Invocação só manual.** `disable-model-invocation: true` no frontmatter: uma skill que reescreve o projeto inteiro não deve ser acionada por inferência do modelo, só quando alguém digita `/refactor-arch`.
 3. **Confirmação com mecanismo concreto.** "Pedir confirmação" virou instrução operacional: usar `AskUserQuestion` quando disponível; senão, terminar o turno com `[s/n]` e esperar. Qualquer resposta ambígua encerra a skill, e em execução não interativa ela para na Fase 2. Antes da aprovação, a única escrita permitida é em `.refactor-arch/`.
 4. **Baseline antes de tocar no código.** "Os endpoints continuam respondendo" só é verificável comparando com o comportamento anterior. A Fase 1 sobe a aplicação original e grava a resposta de cada rota; a Fase 3 repete e compara. A comparação usa status, tipo de corpo e **estrutura de chaves** (não valores, que variam legitimamente), o que detecta um campo `senha` sumindo ou uma lista virando erro.
-5. **Contrato preservado por padrão.** Quebras de contrato só são aceitas para corrigir findings CRITICAL de segurança — por exemplo, remover `/admin/query` ou tirar `senha` dos payloads. Cada quebra aparece como `BC-xx` no relatório **antes** da aprovação, e a validação classifica toda divergência não declarada como regressão.
+5. **Contrato preservado por padrão.** Quebras de contrato só são aceitas para corrigir findings de segurança CRITICAL ou HIGH — por exemplo, remover `/admin/query`, tirar `senha` dos payloads ou exigir token nas rotas `DELETE` — e, nesses findings, a quebra necessária é obrigatória: um finding de segurança não pode terminar parcial por motivo de contrato. Cada quebra aparece como `BC-xx` no relatório **antes** da aprovação, e a validação classifica toda divergência não declarada como regressão.
 6. **Evidência obrigatória.** Findings só com `arquivo:linha` conferidos lendo o código; depreciação só com fonte (aviso em runtime, saída do instalador ou versão de remoção); saída final com `✓`/`✗` sem suavizar falhas.
 7. **Adaptação ao ponto de partida.** A rubrica da Fase 1 separa monolito, God Class, camadas parciais e camadas adequadas. Monolitos ganham a estrutura canônica em `src/`, com o entry point documentado mantido na raiz. Projetos com camadas parciais evoluem no lugar: `routes/` é reconhecido como Views em vez de renomeado, e o `app` importado por `seed.py` continua exportado.
 8. **Artefatos isolados e sem commits.** Relatório, baseline, logs e evidências ficam em `.refactor-arch/` (ignorado pelo git). Versionar é decisão humana.
@@ -225,7 +225,7 @@ Todos surgiram ao executar os projetos originais durante a construção da skill
 
 ## C) Resultados
 
-A skill rodou uma vez em cada projeto, sem ajustes nas referências entre as execuções: a mesma cópia byte-idêntica foi usada nos três. Cada execução foi feita com `claude -p "/refactor-arch"` e, depois da pausa da Fase 2, aprovada retomando a mesma sessão com `s`. Os números abaixo foram conferidos de forma independente: cada aplicação refatorada foi subida com banco limpo, `smoke.sh` foi reexecutado e o resultado foi comparado com o baseline gravado antes da refatoração.
+Na primeira rodada a skill foi executada uma vez em cada projeto, com a mesma cópia byte-idêntica e sem ajustes entre as execuções. Depois da revisão, a regra de contrato foi ajustada (ver abaixo) e o projeto 3 foi reexecutado do zero, a partir do código legado, com a nova versão da skill — que continua byte-idêntica nas três pastas. Cada execução foi feita com `claude -p "/refactor-arch"` e, depois da pausa da Fase 2, aprovada retomando a mesma sessão com `s`. Os números abaixo foram conferidos de forma independente: cada aplicação refatorada foi subida com banco limpo, `smoke.sh` foi reexecutado e o resultado foi comparado com o baseline gravado antes da refatoração.
 
 ### Resumo dos relatórios de auditoria
 
@@ -233,9 +233,11 @@ A skill rodou uma vez em cada projeto, sem ajustes nas referências entre as exe
 |---|---|---|---|---|---|---|---|---|
 | `code-smells-project` | 17 | 6 | 5 | 7 | 4 | **22** | 22/22 | [audit-project-1.md](reports/audit-project-1.md) |
 | `ecommerce-api-legacy` | 16 | 5 | 8 | 4 | 4 | **21** | 20/21 — F-16 (paginação) parcial | [audit-project-2.md](reports/audit-project-2.md) |
-| `task-manager-api` | 16 | 3 | 3 | 7 | 5 | **18** | 17/18 — F-04 (autenticação) parcial | [audit-project-3.md](reports/audit-project-3.md) |
+| `task-manager-api` | 16 | 3 | 3 | 7 | 4 | **17** | 17/17 | [audit-project-3.md](reports/audit-project-3.md) |
 
-Os dois findings parciais foram deixados assim de propósito, pela regra de contrato da skill. Paginação obrigatória mudaria o formato da resposta. Exigir autenticação em todas as rotas do projeto 3 transformaria rotas hoje abertas em 401, e o finding é HIGH, não CRITICAL. Nesse caso a skill trocou o token `fake-jwt-token-<id>` por um token assinado e manteve a recomendação no relatório.
+O finding parcial do projeto 2 foi deixado assim de propósito, pela regra de contrato da skill: paginação obrigatória mudaria o formato da resposta, e o finding (MEDIUM) não é de segurança.
+
+**Ajuste após a revisão.** Na primeira execução do projeto 3, o F-04 (AP-05, HIGH) terminou parcial: a skill assinou o token `fake-jwt-token-<id>`, mas `DELETE /tasks`, `/users` e `/categories` continuaram abertos a clientes anônimos, porque a regra 3 do `SKILL.md` só permitia quebrar contrato em finding CRITICAL. A refatoração não eliminava o impacto que a própria auditoria apontava. A regra passou a cobrir findings de segurança CRITICAL **ou HIGH**, e um finding de segurança não pode mais terminar parcial por motivo de contrato. O `template-relatorio.md`, o catálogo (AP-05), a T14 do playbook (token do login exigido como `Authorization: Bearer` nas rotas destrutivas, com exemplo de `require_auth`) e o protocolo de validação (captura do token no `smoke.sh` e chamada anônima de prova por rota protegida) foram ajustados juntos. Na reexecução, o relatório declarou BC-05 a BC-07 antes da confirmação, e a Fase 3 aplicou a T14: as três rotas `DELETE` respondem 401 sem token válido e 200 com o token emitido pelo `POST /login`. Os projetos 1 e 2 não precisaram ser reexecutados: neles o AP-05 já era CRITICAL e foi protegido na primeira rodada (BC-03 no P1, BC-01/BC-02 no P2).
 
 ### Estrutura antes e depois
 
@@ -283,11 +285,11 @@ task-manager-api/                       task-manager-api/
 ├── app.py         # app, config,       ├── app.py              # create_app() + `app` exportado (seed.py continua funcionando)
 │                  # create_all         ├── config.py, constants.py, errors.py, clock.py, passwords.py, database.py
 ├── database.py                         ├── seed.py
-├── seed.py                             ├── models/             # user, task, category — entidades + acesso a dados
-├── models/        # user, task,        ├── services/           # task, user, category, report, auth (token assinado)
+├── seed.py                             ├── models/             # user, task, category + repositories.py (acesso a dados)
+├── models/        # user, task,        ├── services/           # task, user, category, report, auth (emite e verifica token assinado)
 │                  # category           ├── controllers/        # task, user, category, report + validators   (novo)
-├── routes/        # regras, consultas  ├── routes/             # só mapeiam rota → controller + serializers.py
-│                  # e serialização     └── middlewares/        # error_handler.py                             (novo)
+├── routes/        # regras, consultas  ├── routes/             # só mapeiam rota → controller (DELETE com require_auth) + serializers.py
+│                  # e serialização     └── middlewares/        # error_handler.py, auth.py (Bearer)           (novo)
 ├── services/      # notification
 │                  # (sem uso)          removidos: services/notification_service.py, utils/ (código morto)
 └── utils/         # helpers (sem uso)  requirements.txt: marshmallow, requests e python-dotenv removidos (nunca importados)
@@ -368,7 +370,7 @@ task-manager-api/                       task-manager-api/
 - [x] Relatório segue o template definido nos arquivos de referência
 - [x] Cada finding tem arquivo e linhas exatos
 - [x] Findings ordenados por severidade (CRITICAL → LOW)
-- [x] Mínimo de 5 findings identificados — 18
+- [x] Mínimo de 5 findings identificados — 17
 - [x] Detecção de APIs deprecated incluída — `Query.get()` (`LegacyAPIWarning` em runtime) e `datetime.utcnow()`
 - [x] Skill pausa e pede confirmação antes da Fase 3
 
@@ -381,7 +383,7 @@ task-manager-api/                       task-manager-api/
 - [x] Error handling centralizado — `middlewares/error_handler.py`
 - [x] Entry point claro — `python seed.py` → `python app.py`, mesmos comandos documentados
 - [x] Aplicação inicia sem erros
-- [x] Endpoints originais respondem corretamente — 29/33 idênticos; 4 divergências = BC-01 (remoção de `password`)
+- [x] Endpoints originais respondem corretamente — 26/33 idênticos; 7 divergências declaradas = BC-01 a BC-04 (remoção de `password`) e BC-05 a BC-07 (`DELETE` anônimo → 401). Com o token do login, os três `DELETE` respondem igual ao baseline
 
 </details>
 
@@ -412,15 +414,17 @@ GET /api/admin/financial-report sem X-Admin-Token → 401 Não autorizado
 npm audit: 14 vulnerabilidades (2 critical, 8 high) → 1 moderate (qs, transitiva do Express 4)
 ```
 
-**Projeto 3** — `python seed.py` e depois `PORT=5001 PYTHONWARNINGS=default .venv/bin/python app.py`
+**Projeto 3** (reexecução) — `python seed.py` e depois `PORT=5055 PYTHONWARNINGS=default .venv/bin/python app.py`
 
 ```
  * Serving Flask app 'app'
  * Debug mode: off
- * Running on http://127.0.0.1:5001
-127.0.0.1 - - [10/Oct/2026 14:50:05] "GET /tasks HTTP/1.1" 200 -
+ * Running on http://127.0.0.1:5055
+127.0.0.1 - - [24/Oct/2026 15:21:18] "GET /tasks HTTP/1.1" 200 -
 
-Smoke test: 33 requisições | 29 idênticas ao baseline | 4 divergências declaradas (BC-01) | 0 regressões
+Smoke test: 33 requisições | 26 idênticas ao baseline | 7 divergências declaradas (BC-01 a BC-07) | 0 regressões
+DELETE /tasks/999999, /users/999999, /categories/999999 sem token → 401 (antes 404)
+DELETE /tasks/10, /users/3, /categories/4 com Authorization: Bearer <token do /login> → 200 (igual ao baseline)
 Avisos de depreciação após o replay: nenhum (antes: LegacyAPIWarning em task_routes.py, user_routes.py, report_routes.py)
 ```
 
@@ -435,25 +439,29 @@ Verificações extras feitas fora da skill, contra as aplicações refatoradas:
 | 2 | `GET /api/admin/financial-report` sem token | 200 | 401 |
 | 2 | log do checkout | número do cartão e `pk_live_…` | nenhum dado sensível |
 | 3 | `POST /login` | devolve hash MD5 em `user.password` | sem `password`; token assinado |
+| 3 | `DELETE /tasks/1`, `/users/2`, `/categories/1` sem token | 200, apaga | 401 |
+| 3 | `DELETE /tasks/1` com `Bearer fake-jwt-token-1` ou token adulterado | — | 401 |
+| 3 | `DELETE /tasks/1` com `Bearer <token do /login>` | — | 200 |
+| 3 | `GET /tasks` e `POST /tasks` sem token | 200 / 201 | 200 / 201 (rotas não destrutivas seguem abertas) |
 | 1, 2, 3 | rota inexistente / método não permitido | 404 / 405 | 404 / 405 (preservados) |
 
 ### Comportamento da skill em stacks diferentes
 
-- **Uma iteração bastou.** Os critérios de aceite foram atingidos nos três projetos na primeira execução, com a mesma cópia da skill.
+- **Duas iterações.** Os critérios de aceite foram atingidos nos três projetos na primeira execução. A revisão apontou que o F-04 do P3 ficou parcial pela regra de contrato. Depois do ajuste na regra, uma reexecução do P3 fechou o finding sem nenhuma regressão.
 - **A Fase 3 se adaptou ao ponto de partida.** O monolito Flask (P1) ganhou a estrutura canônica em `src/`, mantendo `python app.py`. A God Class Express (P2) foi desmontada dentro do `src/` existente, com callbacks convertidos para `async/await` e checkout transacional. O projeto com camadas parciais (P3) evoluiu no lugar: nenhuma pasta existente foi renomeada, `controllers/` e `middlewares/` foram criados e `from app import app, db` continuou funcionando no `seed.py`.
 - **A detecção mudou conforme a stack.** No Node, a depreciação veio de `npm audit` e da árvore de dependências; no Flask/SQLAlchemy, de `LegacyAPIWarning` em runtime. O conflito da porta 5000 (AirPlay no macOS) foi detectado nos dois projetos Flask, que subiram em outra porta sem editar código.
-- **O contrato HTTP foi preservado.** Só mudaram as respostas declaradas como Breaking Changes antes da aprovação: 3 no P1, 2 no P2 e 1 no P3, todos ligados a findings CRITICAL de segurança.
+- **O contrato HTTP foi preservado.** Só mudaram as respostas declaradas como Breaking Changes antes da aprovação: 3 no P1, 2 no P2 e 7 no P3, todos ligados a findings de segurança (CRITICAL, e no P3 também o F-04 HIGH).
 - **Custo e duração.** Fases 1–2 levaram de 6 a 8 minutos por projeto; a Fase 3, de 8 a 16 minutos.
 
 #### Limitações observadas
 
 Registradas para a próxima iteração da skill. Nenhuma afeta os critérios de aceite.
 
-1. **Bug remanescente no P3:** `POST /tasks` com `"priority": "2"` ainda responde 500 (`TypeError` em `controllers/validators.py:40`), embora o F-08 conste como corrigido. A resposta passou de HTML para `{"error": "Erro interno"}`, mas a conversão de tipo continua faltando. O smoke test não tinha um caso de tipo errado, então a validação não exercitou o problema. Correção na skill: exigir, no protocolo A4, um caso de "tipo inválido" por rota de escrita.
-2. **Import contra a regra de dependência:** em P3, `services/*.py` importa `controllers.validators`; em P2, `report.service.js` importa `views/serializers`. Os greps da seção 3 das guidelines não verificam imports entre camadas. Correção: acrescentar um grep de "import para camada acima".
+1. **Bug remanescente no P3 (persiste na reexecução):** `POST /tasks` com `"priority": "2"` ainda responde 500 (`TypeError` em `controllers/validators.py:31`), embora o finding de validação conste como corrigido. A resposta passou de HTML para `{"error": "Erro interno"}`, mas a conversão de tipo continua faltando. O smoke test não tinha um caso de tipo errado, então a validação não exercitou o problema. Correção na skill: exigir, no protocolo A4, um caso de "tipo inválido" por rota de escrita.
+2. **Import contra a regra de dependência:** em P2, `report.service.js` importa `views/serializers` (na primeira execução do P3, `services/*.py` também importava `controllers.validators`; na reexecução isso não se repetiu). Os greps da seção 3 das guidelines não verificam imports entre camadas. Correção: acrescentar um grep de "import para camada acima".
 3. **Relatório resumido no terminal:** nos três projetos o terminal mostrou uma versão condensada dos findings, apesar de o `SKILL.md` pedir o relatório completo. O arquivo gravado em `.refactor-arch/relatorio-auditoria.md` (copiado para `reports/`) está completo.
 4. **Classificação do P1:** a Fase 1 classificou o projeto como "Camadas parciais" em vez de "Monolítica". A Fase 3 ainda assim aplicou o caminho de monolito (`src/` canônico).
-5. **Contagem e idioma:** o P3 anunciou 34 requisições no smoke test, mas o arquivo tem 33. A narração entre etapas do P1 saiu em inglês, embora os blocos de saída estejam em português.
+5. **Idioma:** a narração entre etapas do P1 saiu em inglês, embora os blocos de saída estejam em português. (Na primeira execução, o P3 também anunciou 34 requisições no smoke test com 33 no arquivo; na reexecução a contagem bateu.)
 
 ---
 
