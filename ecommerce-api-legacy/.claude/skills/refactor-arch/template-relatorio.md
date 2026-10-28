@@ -11,7 +11,7 @@ Referência da **Fase 2**. O relatório é gravado em `.refactor-arch/relatorio-
 5. **Contagens coerentes.** Os números do `Resumo` contam findings, não ocorrências. `Total` é a soma do resumo e bate com a quantidade de blocos `### F-`.
 6. **Descrição concreta.** Cite nomes de funções, rotas e trechos reais. Segredos aparecem redigidos: mostre só os primeiros caracteres (`'minha-chave-****'`, `pk_live_****`).
 7. **Recomendação acionável.** Diga o que fazer e aponte a transformação do playbook (`T01`…`T17`).
-8. **Contrato.** Todo finding declara se a correção preserva o contrato HTTP ou qual quebra (`BC-xx`) ela exige. Quebras só são aceitas para findings de segurança CRITICAL ou HIGH (regra 3 do `SKILL.md`) — e, nesses, a quebra necessária é proposta, não evitada: um AP-05 HIGH cuja correção exige proteger rotas declara um `BC-xx` por rota protegida.
+8. **Contrato.** Todo finding declara se a correção preserva o contrato HTTP ou qual quebra (`BC-xx`) ela exige. Quebras só são aceitas para findings de segurança CRITICAL ou HIGH (regra 3 do `SKILL.md`) — e, nesses, a quebra necessária é proposta, não evitada: um AP-05 HIGH cuja correção exige proteger rotas declara um `BC-xx` por rota protegida. No AP-05, a recomendação segue a tabela de situações da T14 rota a rota: rota que executa SQL/código do cliente ou destrói dados em massa é **removida** (um `BC-xx` por rota removida), nunca apenas protegida.
 9. **APIs deprecated.** A seção é obrigatória. Sem ocorrências, escreva `Nenhuma API deprecated detectada` e diga como verificou (warnings em runtime, saída do instalador, busca pelos padrões do catálogo).
 
 ## Estrutura
@@ -81,6 +81,7 @@ Contrato: preservado
 
 ```markdown
 | BC-01 | GET /health | remove os campos `secret_key`, `debug` e `db_path` da resposta; `status` e `database` permanecem | F-02 — segredo exposto em endpoint público |
+| BC-02 | POST /admin/query | rota removida da API (T14, "Executa SQL enviado pelo cliente"); passa a responder 404 com ou sem credencial | F-01 — execução de SQL arbitrário |
 ```
 
 Uma quebra não declarada aqui e detectada na validação da Fase 3 é tratada como regressão.

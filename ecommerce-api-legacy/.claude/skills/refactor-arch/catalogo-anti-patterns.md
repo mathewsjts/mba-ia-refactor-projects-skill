@@ -145,7 +145,7 @@ Um valor numérico garantido pelo conversor da rota (`<int:id>`) reduz a explora
 
 **Impacto:** qualquer cliente anônimo pode apagar o banco, exfiltrar tudo ou assumir contas.
 
-**Nota de contrato:** em CRITICAL ou HIGH, a Fase 3 aplica a T14 por completo — a rota privilegiada ou destrutiva passa a exigir credencial, declarada como Breaking Change. Assinar o token falso sem exigi-lo nas rotas deixa o impacto intacto e não corrige o finding.
+**Nota de contrato:** em CRITICAL ou HIGH, a Fase 3 aplica a T14 por completo, rota a rota, e cada mudança é declarada como Breaking Change. Rota que executa SQL ou código enviado pelo cliente, ou que destrói dados em massa, é **removida** — protegê-la com token mantém a capacidade de exfiltrar ou destruir o banco e não corrige o finding. As demais rotas privilegiadas ou destrutivas passam a exigir credencial. Assinar o token falso sem exigi-lo nas rotas deixa o impacto intacto e não corrige o finding.
 
 ---
 

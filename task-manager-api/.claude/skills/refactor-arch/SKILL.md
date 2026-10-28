@@ -28,7 +28,7 @@ Ficam no mesmo diretório deste `SKILL.md` — a partir da raiz do projeto, `.cl
 
 1. **Nenhuma modificação antes da confirmação.** Até o usuário aprovar explicitamente no fim da Fase 2, você não cria, altera, move nem apaga arquivo algum do projeto. Exceções: escrever dentro de `.refactor-arch/` (diretório de trabalho da skill), instalar dependências declaradas e subir a aplicação para capturar o baseline.
 2. **Evidência, não estimativa.** Todo finding cita arquivo e linha(s) conferidos lendo o arquivo. Toda afirmação de sucesso na Fase 3 corresponde a uma saída real de comando. O que não pôde ser verificado é declarado como não verificado.
-3. **Contrato HTTP preservado.** Método, path, status code, tipo de corpo (JSON ou texto) e estrutura de chaves das respostas continuam iguais. A **única** exceção é a correção de um finding **de segurança** de severidade CRITICAL **ou HIGH** (AP-01 a AP-05, AP-10, AP-16) — e toda quebra desse tipo é declarada em `Breaking Changes propostos` no relatório, *antes* da confirmação. Para AP-05 isso significa aplicar a T14 por completo, qualquer que seja a severidade: assinar um token falso não basta, as rotas privilegiadas ou destrutivas passam a exigir credencial.
+3. **Contrato HTTP preservado.** Método, path, status code, tipo de corpo (JSON ou texto) e estrutura de chaves das respostas continuam iguais. A **única** exceção é a correção de um finding **de segurança** de severidade CRITICAL **ou HIGH** (AP-01 a AP-05, AP-10, AP-16) — e toda quebra desse tipo é declarada em `Breaking Changes propostos` no relatório, *antes* da confirmação. Para AP-05 isso significa aplicar a T14 por completo, qualquer que seja a severidade, seguindo a ação da tabela de situações para **cada rota**: rota que executa SQL ou código enviado pelo cliente, ou que destrói dados em massa, é **removida** da API — exigir credencial nela não corrige o finding; as demais rotas privilegiadas ou destrutivas passam a exigir credencial; assinar um token falso sem exigi-lo não basta.
 4. **Comandos de execução preservados.** Os comandos documentados para instalar, popular e subir a aplicação (README, `scripts` do manifesto, bloco `__main__`, scripts de seed) continuam funcionando depois da refatoração.
 5. **Adapte-se ao ponto de partida.** Um monolito é reestruturado; um projeto que já tem camadas é refinado. Não renomeie nem mova o que já cumpre o papel certo.
 6. **Não faça commit** nem altere o histórico git. Versionar é decisão do usuário.
@@ -72,7 +72,7 @@ Objetivo: produzir um relatório confiável e obter autorização para modificar
 2. Para **cada** anti-pattern do catálogo, aplique os sinais de detecção sobre os arquivos-fonte (busca textual e leitura do trecho). Confirme cada ocorrência lendo o código ao redor e descarte os falsos positivos descritos no catálogo.
 3. Consolide por causa raiz: várias ocorrências do mesmo anti-pattern com a mesma causa viram **um** finding com todas as localizações.
 4. Classifique a severidade pelo catálogo e aplique as regras de escalonamento.
-5. Leia `template-relatorio.md` e monte o relatório, incluindo `Breaking Changes propostos` — toda mudança de contrato que a Fase 3 fará, com o finding que a justifica. Toda rota que a T14 passará a proteger é um Breaking Change e entra nessa tabela.
+5. Leia `template-relatorio.md` e monte o relatório, incluindo `Breaking Changes propostos` — toda mudança de contrato que a Fase 3 fará, com o finding que a justifica. Toda rota que a T14 passará a proteger **ou remover** é um Breaking Change e entra nessa tabela; a recomendação do finding AP-05 diz, rota a rota, qual linha da tabela da T14 se aplica (remover ou proteger).
 6. Grave o relatório em `.refactor-arch/relatorio-auditoria.md` e imprima-o **completo** no terminal.
 7. **PARE e peça confirmação** antes de qualquer modificação:
    - Se a ferramenta `AskUserQuestion` estiver disponível, use-a com as opções "Sim, prosseguir com a refatoração" e "Não, encerrar aqui".
@@ -90,7 +90,7 @@ Objetivo: reestruturar para MVC, eliminar os findings e provar que a aplicação
    2. **models** — entidades e acesso a dados por domínio (T01, T03, T05, T07, T08, T11, T12, T15)
    3. **services** — regras de negócio e integrações externas (T04, T06, T09)
    4. **controllers** — fluxo de requisição e resposta (T04, T09)
-   5. **views/routes** — mapeamento de rotas e serialização (T13, T14, T17)
+   5. **views/routes** — mapeamento de rotas e serialização (T13, T14, T17). Na T14, classifique cada rota do finding AP-05 pela tabela de situações e aplique a ação daquela linha: em "Remover", apagam-se a rota, o método do controller e o método do model/service que executa a entrada do cliente — proteger com token no lugar de remover deixa o finding **não corrigido**
    6. **middlewares** — tratamento centralizado de erros (T10)
    7. **composition root** — montagem das dependências e entry point (T11)
    8. **limpeza** — código morto, imports, logging, constantes (T16); remova os arquivos antigos que ficaram vazios
