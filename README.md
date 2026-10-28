@@ -225,19 +225,28 @@ Todos surgiram ao executar os projetos originais durante a construção da skill
 
 ## C) Resultados
 
-Na primeira rodada a skill foi executada uma vez em cada projeto, com a mesma cópia byte-idêntica e sem ajustes entre as execuções. Depois da revisão, a regra de contrato foi ajustada (ver abaixo) e o projeto 3 foi reexecutado do zero, a partir do código legado, com a nova versão da skill — que continua byte-idêntica nas três pastas. Cada execução foi feita com `claude -p "/refactor-arch"` e, depois da pausa da Fase 2, aprovada retomando a mesma sessão com `s`. Os números abaixo foram conferidos de forma independente: cada aplicação refatorada foi subida com banco limpo, `smoke.sh` foi reexecutado e o resultado foi comparado com o baseline gravado antes da refatoração.
+Na primeira rodada a skill foi executada uma vez em cada projeto, com a mesma cópia byte-idêntica e sem ajustes entre as execuções. Depois das revisões, a skill foi ajustada duas vezes (ver abaixo) e os projetos 3 e 1 foram reexecutados do zero, a partir do código legado, com a nova versão da skill — que continua byte-idêntica nas três pastas. Cada execução foi feita com `claude -p "/refactor-arch"` e, depois da pausa da Fase 2, aprovada retomando a mesma sessão com `s`. Os números abaixo foram conferidos de forma independente: cada aplicação refatorada foi subida com banco limpo, `smoke.sh` foi reexecutado e o resultado foi comparado com o baseline gravado antes da refatoração.
 
 ### Resumo dos relatórios de auditoria
 
 | Projeto | Análise manual | CRITICAL | HIGH | MEDIUM | LOW | Total | Corrigidos na Fase 3 | Relatório |
 |---|---|---|---|---|---|---|---|---|
-| `code-smells-project` | 17 | 6 | 5 | 7 | 4 | **22** | 22/22 | [audit-project-1.md](reports/audit-project-1.md) |
+| `code-smells-project` | 17 | 6 | 5 | 6 | 5 | **22** | 21/22 — F-16 (paginação de `/pedidos`) parcial | [audit-project-1.md](reports/audit-project-1.md) |
 | `ecommerce-api-legacy` | 16 | 5 | 8 | 4 | 4 | **21** | 20/21 — F-16 (paginação) parcial | [audit-project-2.md](reports/audit-project-2.md) |
 | `task-manager-api` | 16 | 3 | 3 | 7 | 4 | **17** | 17/17 | [audit-project-3.md](reports/audit-project-3.md) |
 
-O finding parcial do projeto 2 foi deixado assim de propósito, pela regra de contrato da skill: paginação obrigatória mudaria o formato da resposta, e o finding (MEDIUM) não é de segurança.
+Os dois findings parciais são de paginação (MEDIUM, não são de segurança) e foram deixados assim de propósito, pela regra de contrato da skill. No projeto 2, paginação obrigatória mudaria o formato da resposta. No projeto 1, a paginação opcional (`limit`/`offset`) foi aplicada a `/produtos` e `/usuarios`, mas não a `/pedidos`: a listagem vem de um `LEFT JOIN` pedido × itens, e um `LIMIT` sobre as linhas do JOIN cortaria os itens de um pedido no meio.
 
-**Ajuste após a revisão.** Na primeira execução do projeto 3, o F-04 (AP-05, HIGH) terminou parcial: a skill assinou o token `fake-jwt-token-<id>`, mas `DELETE /tasks`, `/users` e `/categories` continuaram abertos a clientes anônimos, porque a regra 3 do `SKILL.md` só permitia quebrar contrato em finding CRITICAL. A refatoração não eliminava o impacto que a própria auditoria apontava. A regra passou a cobrir findings de segurança CRITICAL **ou HIGH**, e um finding de segurança não pode mais terminar parcial por motivo de contrato. O `template-relatorio.md`, o catálogo (AP-05), a T14 do playbook (token do login exigido como `Authorization: Bearer` nas rotas destrutivas, com exemplo de `require_auth`) e o protocolo de validação (captura do token no `smoke.sh` e chamada anônima de prova por rota protegida) foram ajustados juntos. Na reexecução, o relatório declarou BC-05 a BC-07 antes da confirmação, e a Fase 3 aplicou a T14: as três rotas `DELETE` respondem 401 sem token válido e 200 com o token emitido pelo `POST /login`. Os projetos 1 e 2 não precisaram ser reexecutados: neles o AP-05 já era CRITICAL e foi protegido na primeira rodada (BC-03 no P1, BC-01/BC-02 no P2).
+**Ajuste após a revisão.** Na primeira execução do projeto 3, o F-04 (AP-05, HIGH) terminou parcial: a skill assinou o token `fake-jwt-token-<id>`, mas `DELETE /tasks`, `/users` e `/categories` continuaram abertos a clientes anônimos, porque a regra 3 do `SKILL.md` só permitia quebrar contrato em finding CRITICAL. A refatoração não eliminava o impacto que a própria auditoria apontava. A regra passou a cobrir findings de segurança CRITICAL **ou HIGH**, e um finding de segurança não pode mais terminar parcial por motivo de contrato. O `template-relatorio.md`, o catálogo (AP-05), a T14 do playbook (token do login exigido como `Authorization: Bearer` nas rotas destrutivas, com exemplo de `require_auth`) e o protocolo de validação (captura do token no `smoke.sh` e chamada anônima de prova por rota protegida) foram ajustados juntos. Na reexecução, o relatório declarou BC-05 a BC-07 antes da confirmação, e a Fase 3 aplicou a T14: as três rotas `DELETE` respondem 401 sem token válido e 200 com o token emitido pelo `POST /login`.
+
+**Segundo ajuste (projeto 1).** Na primeira execução do projeto 1, o F-05 (AP-05, CRITICAL) só acrescentou `X-Admin-Token` a `POST /admin/query` e `POST /admin/reset-db`. Com isso, `admin_model.py` continuava executando e gravando qualquer SQL recebido. Isso contrariava a própria T14 do playbook, que manda **remover** rotas que executam SQL do cliente ou destroem dados em massa. A causa estava no texto da skill: a regra 3 do `SKILL.md` e a nota de contrato do AP-05 no catálogo diziam apenas que "as rotas privilegiadas passam a exigir credencial", e o protocolo de validação só previa rotas administrativas protegidas. A Fase 2 seguiu esse texto e a Fase 3 executou o que foi aprovado. Ajustes feitos:
+
+- **Regra 3, catálogo e template:** passaram a exigir a ação da tabela da T14 **rota a rota**. Rota da linha "Remover" que só ganha token deixa o finding não corrigido.
+- **Fase 3 do `SKILL.md`:** na etapa views/routes, manda apagar a rota, o método do controller e o método do model que executa a entrada.
+- **T14 do playbook:** ganhou um exemplo de remoção, com o reset virando comando `flask --app app reset-db`.
+- **Protocolo de validação:** inclui uma "prova de remoção" no `smoke.sh` (200 → 404, declarada) e uma varredura B6 que procura código executando entrada do cliente.
+
+Na reexecução do zero, o relatório declarou a remoção das duas rotas (BC-01 e BC-02) antes da confirmação. Na Fase 3, `admin_controller.py` e `admin_auth.py` deixaram de existir, `admin_model.py` ficou só com o reset usado pelo comando de linha e `ADMIN_TOKEN` saiu da configuração. O projeto 2 não precisou ser reexecutado: seu AP-05 cobre um relatório financeiro e a remoção de usuários, casos que a T14 manda **proteger** (BC-01/BC-02 com `X-Admin-Token`).
 
 ### Estrutura antes e depois
 
@@ -252,11 +261,13 @@ code-smells-project/                    code-smells-project/
 │                   # + notificações        ├── app.py              # composition root (injeção de dependências)
 ├── models.py       # SQL de 4 domínios     ├── errors.py
 │                   # + regras              ├── config/settings.py
-├── database.py     # conexão global,       ├── models/             # database, passwords, produto, usuario, pedido, admin
-│                   # schema, seed          ├── services/           # produto, usuario, pedido, relatorio, notificacao
-└── requirements.txt                        ├── controllers/        # 6 controllers + validators
-                                            ├── views/              # routes.py, serializers.py
-                                            └── middlewares/        # error_handler.py, admin_auth.py
+├── database.py     # conexão global,       ├── models/             # database, passwords, produto, usuario, pedido, admin (reset só via CLI)
+│                   # schema, seed          ├── services/           # produto, usuario, pedido, relatorio, notificacao, meta
+└── requirements.txt                        ├── controllers/        # 5 controllers + validators
+                                            ├── views/              # routes.py (sem /admin), serializers.py
+                                            └── middlewares/        # error_handler.py
+
+removidos: POST /admin/query e POST /admin/reset-db (T14 "Remover"); o reset virou `flask --app app reset-db`
 ```
 
 **Projeto 2 — `ecommerce-api-legacy`** (God Class → camadas dentro do `src/` existente)
@@ -323,7 +334,7 @@ task-manager-api/                       task-manager-api/
 - [x] Error handling centralizado — `src/middlewares/error_handler.py`
 - [x] Entry point claro — `python app.py`, mesmo comando documentado
 - [x] Aplicação inicia sem erros
-- [x] Endpoints originais respondem corretamente — 33/36 idênticos; 3 divergências = BC-01 e BC-02
+- [x] Endpoints originais respondem corretamente — 23/27 idênticos; 4 divergências declaradas = BC-01 e BC-02 (`/admin/query` e `/admin/reset-db` removidas → 404), BC-03 (`/health` sem segredos) e BC-04 (`/usuarios` sem `senha`)
 
 </details>
 
@@ -391,16 +402,18 @@ task-manager-api/                       task-manager-api/
 
 Cada projeto guarda as evidências completas em `.refactor-arch/` (ignorado pelo git): `baseline.txt`, `depois.txt`, `diff.txt`, `boot-antes.log`, `boot-depois.log` e `validacao.md`.
 
-**Projeto 1** — `PORT=5055 ADMIN_TOKEN=… PYTHONWARNINGS=default .venv/bin/python app.py`
+**Projeto 1** (reexecução) — `PORT=5055 PYTHONWARNINGS=default .venv/bin/python app.py`
 
 ```
-INFO:__main__:Servidor iniciado em http://127.0.0.1:5055
  * Serving Flask app 'src.app'
  * Debug mode: off
  * Running on http://127.0.0.1:5055
-INFO:werkzeug:127.0.0.1 - - [10/Oct/2026 14:25:44] "GET /produtos HTTP/1.1" 200 -
+127.0.0.1 - - [28/Oct/2026 17:10:16] "GET /health HTTP/1.1" 200 -
 
-Smoke test: Requisições: 36 | Idênticas ao baseline: 33 | Divergências declaradas: 3 | Regressões: 0
+Smoke test: Requisições: 27 | Idênticas ao baseline: 23 | Divergências declaradas: 4 (BC-01 a BC-04) | Regressões: 0
+POST /admin/query e POST /admin/reset-db → 404 com ou sem X-Admin-Token (antes 200)
+flask --app app reset-db → "Banco de dados resetado"
+Avisos de depreciação após o replay: nenhum
 ```
 
 **Projeto 2** — `PORT=3000 ADMIN_TOKEN=… NODE_OPTIONS=--trace-deprecation npm start`
@@ -433,7 +446,8 @@ Verificações extras feitas fora da skill, contra as aplicações refatoradas:
 | Projeto | Verificação | Antes | Depois |
 |---|---|---|---|
 | 1 | `POST /login` com senha `' OR '1'='1` | autentica | 401 |
-| 1 | `POST /admin/query` sem token | 200, executa o SQL | 401 |
+| 1 | `POST /admin/query` e `POST /admin/reset-db`, com ou sem token | 200, executa o SQL / apaga o banco | 404 (rotas removidas) |
+| 1 | `grep` por `executar_query` e `execute(sql…)` em `src/` | — | nenhuma ocorrência |
 | 1 | `GET /produtos/busca?preco_min=abc` | 500 | 400 |
 | 1 | `GET /health` | devolve `secret_key` | sem `secret_key`, `debug`, `db_path` |
 | 2 | `GET /api/admin/financial-report` sem token | 200 | 401 |
@@ -447,10 +461,10 @@ Verificações extras feitas fora da skill, contra as aplicações refatoradas:
 
 ### Comportamento da skill em stacks diferentes
 
-- **Duas iterações.** Os critérios de aceite foram atingidos nos três projetos na primeira execução. A revisão apontou que o F-04 do P3 ficou parcial pela regra de contrato. Depois do ajuste na regra, uma reexecução do P3 fechou o finding sem nenhuma regressão.
+- **Três iterações.** Os critérios de aceite foram atingidos nos três projetos na primeira execução. A primeira revisão apontou que o F-04 do P3 ficou parcial pela regra de contrato; depois do ajuste na regra, uma reexecução do P3 fechou o finding sem nenhuma regressão. A segunda revisão apontou que o F-05 do P1 protegeu com token rotas que a T14 manda remover; depois do ajuste no texto da skill, uma reexecução do P1 removeu as duas rotas sem nenhuma regressão.
 - **A Fase 3 se adaptou ao ponto de partida.** O monolito Flask (P1) ganhou a estrutura canônica em `src/`, mantendo `python app.py`. A God Class Express (P2) foi desmontada dentro do `src/` existente, com callbacks convertidos para `async/await` e checkout transacional. O projeto com camadas parciais (P3) evoluiu no lugar: nenhuma pasta existente foi renomeada, `controllers/` e `middlewares/` foram criados e `from app import app, db` continuou funcionando no `seed.py`.
 - **A detecção mudou conforme a stack.** No Node, a depreciação veio de `npm audit` e da árvore de dependências; no Flask/SQLAlchemy, de `LegacyAPIWarning` em runtime. O conflito da porta 5000 (AirPlay no macOS) foi detectado nos dois projetos Flask, que subiram em outra porta sem editar código.
-- **O contrato HTTP foi preservado.** Só mudaram as respostas declaradas como Breaking Changes antes da aprovação: 3 no P1, 2 no P2 e 7 no P3, todos ligados a findings de segurança (CRITICAL, e no P3 também o F-04 HIGH).
+- **O contrato HTTP foi preservado.** Só mudaram as respostas declaradas como Breaking Changes antes da aprovação: 4 no P1, 2 no P2 e 7 no P3, todos ligados a findings de segurança (CRITICAL, e no P3 também o F-04 HIGH).
 - **Custo e duração.** Fases 1–2 levaram de 6 a 8 minutos por projeto; a Fase 3, de 8 a 16 minutos.
 
 #### Limitações observadas
