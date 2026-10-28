@@ -1,5 +1,4 @@
-"""Regras de produto (T04). Orquestra o model; a validação de entrada fica no
-validador (T09) e o formato de resposta na view (T13)."""
+"""Regras de negócio de produtos."""
 from src.errors import NotFoundError
 
 
@@ -8,21 +7,18 @@ class ProdutoService:
         self._produtos = produto_model
 
     def listar(self, limit=None, offset=0):
-        return self._produtos.listar(limit=limit, offset=offset)
+        return self._produtos.listar(limit, offset)
 
     def buscar(self, produto_id):
         produto = self._produtos.buscar_por_id(produto_id)
         if produto is None:
-            # 404 do original incluía "sucesso": False nesta rota.
-            raise NotFoundError("Produto não encontrado", include_sucesso=True)
+            # GET traz `sucesso: false` no corpo do 404 (contrato original).
+            raise NotFoundError("Produto não encontrado", sucesso=False)
         return produto
 
-    def pesquisar(self, termo, categoria, preco_min, preco_max):
-        return self._produtos.buscar(termo, categoria, preco_min, preco_max)
-
     def garantir_existe(self, produto_id):
-        # 404 do original (em atualizar/deletar) NÃO incluía "sucesso".
         if self._produtos.buscar_por_id(produto_id) is None:
+            # PUT/DELETE: 404 só com `erro` (contrato original).
             raise NotFoundError("Produto não encontrado")
 
     def criar(self, campos):
@@ -38,5 +34,7 @@ class ProdutoService:
         )
 
     def deletar(self, produto_id):
-        self.garantir_existe(produto_id)
         self._produtos.deletar(produto_id)
+
+    def buscar_catalogo(self, termo, categoria, preco_min, preco_max):
+        return self._produtos.buscar(termo, categoria, preco_min, preco_max)

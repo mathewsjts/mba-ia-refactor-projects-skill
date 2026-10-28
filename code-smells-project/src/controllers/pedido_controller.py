@@ -18,12 +18,12 @@ class PedidoController:
             "mensagem": "Pedido criado com sucesso",
         }), 201
 
-    def listar_todos(self):
-        pedidos = self._service.listar()
+    def listar_por_usuario(self, usuario_id):
+        pedidos = self._service.listar_por_usuario(usuario_id)
         return jsonify({"dados": serialize_pedidos(pedidos), "sucesso": True}), 200
 
-    def listar_usuario(self, usuario_id):
-        pedidos = self._service.listar(usuario_id=usuario_id)
+    def listar_todos(self):
+        pedidos = self._service.listar_todos()
         return jsonify({"dados": serialize_pedidos(pedidos), "sucesso": True}), 200
 
     def atualizar_status(self, pedido_id):
