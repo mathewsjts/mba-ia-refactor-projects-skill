@@ -1,11 +1,7 @@
-# Artefatos da skill refactor-arch
-.refactor-arch/
-
-# Ambiente e artefatos Python
-.venv/
 __pycache__/
 *.pyc
-
-# Banco SQLite gerado no boot
+.venv/
 loja.db
+*.sqlite*
+.refactor-arch/
 .env

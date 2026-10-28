@@ -1,7 +1,6 @@
-"""Relatório de vendas (T04): a regra de desconto sai do model.
-Limiares e taxas viram constantes nomeadas (T16, AP-21)."""
+"""Relatório de vendas — regra de desconto extraída do model (T03/F-19)."""
 
-# (limiar de faturamento, taxa de desconto) em ordem decrescente de limiar.
+# Faixas de faturamento (limite inferior exclusivo) → taxa de desconto.
 FAIXAS_DESCONTO = ((10000, 0.10), (5000, 0.05), (1000, 0.02))
 
 

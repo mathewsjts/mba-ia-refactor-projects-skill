@@ -1,4 +1,4 @@
-"""Regras de usuário e autenticação (T04, T05)."""
+"""Regras de negócio de usuários — hash de senha na criação e no login (T05)."""
 from src.errors import NotFoundError, UnauthorizedError
 from src.models.passwords import hash_password, verify_password
 
@@ -7,8 +7,8 @@ class UsuarioService:
     def __init__(self, usuario_model):
         self._usuarios = usuario_model
 
-    def listar(self):
-        return self._usuarios.listar()
+    def listar(self, limit=None, offset=0):
+        return self._usuarios.listar(limit, offset)
 
     def buscar(self, usuario_id):
         usuario = self._usuarios.buscar_por_id(usuario_id)
@@ -19,13 +19,8 @@ class UsuarioService:
     def criar(self, nome, email, senha):
         return self._usuarios.criar(nome, email, hash_password(senha))
 
-    def autenticar(self, email, senha):
+    def login(self, email, senha):
         usuario = self._usuarios.buscar_por_email(email)
-        if usuario and verify_password(usuario["senha"], senha):
-            return {
-                "id": usuario["id"],
-                "nome": usuario["nome"],
-                "email": usuario["email"],
-                "tipo": usuario["tipo"],
-            }
-        raise UnauthorizedError("Email ou senha inválidos", include_sucesso=True)
+        if usuario is None or not verify_password(usuario["senha"], senha):
+            raise UnauthorizedError("Email ou senha inválidos", sucesso=False)
+        return usuario

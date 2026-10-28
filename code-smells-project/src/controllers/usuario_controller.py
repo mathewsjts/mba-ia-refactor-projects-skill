@@ -1,12 +1,8 @@
 """Controller de usuários e login."""
-import logging
-
 from flask import jsonify, request
 
-from src.controllers.validators import validar_login, validar_usuario
-from src.views.serializers import serialize_usuario, serialize_usuarios
-
-logger = logging.getLogger(__name__)
+from src.controllers.validators import parse_paginacao, validar_login, validar_usuario
+from src.views.serializers import serialize_login, serialize_usuario, serialize_usuarios
 
 
 class UsuarioController:
@@ -14,25 +10,20 @@ class UsuarioController:
         self._service = usuario_service
 
     def listar(self):
-        usuarios = self._service.listar()
+        limit, offset = parse_paginacao(request.args)
+        usuarios = self._service.listar(limit, offset)
         return jsonify({"dados": serialize_usuarios(usuarios), "sucesso": True}), 200
 
-    def buscar(self, id):
-        usuario = self._service.buscar(id)
+    def buscar(self, usuario_id):
+        usuario = self._service.buscar(usuario_id)
         return jsonify({"dados": serialize_usuario(usuario), "sucesso": True}), 200
 
     def criar(self):
-        campos = validar_usuario(request.get_json(silent=True))
-        usuario_id = self._service.criar(campos["nome"], campos["email"], campos["senha"])
-        logger.info("Usuário criado: %s", campos["email"])
-        return jsonify({"dados": {"id": usuario_id}, "sucesso": True}), 201
+        nome, email, senha = validar_usuario(request.get_json(silent=True))
+        novo_id = self._service.criar(nome, email, senha)
+        return jsonify({"dados": {"id": novo_id}, "sucesso": True}), 201
 
     def login(self):
         email, senha = validar_login(request.get_json(silent=True))
-        usuario = self._service.autenticar(email, senha)
-        logger.info("Login bem-sucedido: %s", email)
-        return jsonify({
-            "dados": usuario,
-            "sucesso": True,
-            "mensagem": "Login OK",
-        }), 200
+        usuario = self._service.login(email, senha)
+        return jsonify({"dados": serialize_login(usuario), "sucesso": True, "mensagem": "Login OK"}), 200

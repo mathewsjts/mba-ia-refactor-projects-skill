@@ -114,6 +114,7 @@ Copie o modelo e preencha apenas a seção de requisições.
 - **Rotas administrativas** enviam `-H "X-Admin-Token: ${ADMIN_TOKEN:-}"` nas duas execuções. O original ignora o header; a versão protegida (T14) o exige.
 - **Projeto com login:** logo depois do `call POST '/login'` com credenciais válidas do seed, guarde o token da resposta (`TOKEN="$(token_from_body)"`) e envie `-H "Authorization: Bearer ${TOKEN:-}"` em toda rota destrutiva (`DELETE`) e administrativa, nas duas execuções. O original ignora o header; a versão protegida (T14) o exige.
 - **Prova de proteção:** para cada rota que a T14 vai proteger, inclua uma chamada **anônima** com id inexistente (`/recurso/999999`, sem header). No baseline ela responde 404 sem apagar nada; depois, 401 — divergência declarada no `BC-xx` correspondente.
+- **Prova de remoção:** cada rota que a T14 vai remover (execução de SQL/código do cliente, destruição em massa) continua no `smoke.sh` com uma chamada inofensiva — só leitura, ex.: `{"sql":"SELECT 1"}` — enviando o mesmo header administrativo das demais. No baseline ela responde como antes; depois, 404 — divergência declarada no `BC-xx` correspondente. A rota de destruição em massa continua sendo a última chamada.
 
 ```bash
 #!/usr/bin/env bash
@@ -271,7 +272,8 @@ Exemplos típicos de regressão: 404 virou 500 porque o handler de `Exception` c
 
 1. Reaplique os sinais de detecção de **todos** os anti-patterns CRITICAL e HIGH do catálogo sobre o código novo.
 2. Rode os greps de proibições por camada (`guidelines-arquitetura.md`, seção 3).
-3. Cada ocorrência é corrigida ou justificada como falso positivo em `validacao.md`.
+3. **Situações "Remover" da T14.** Confirme que nenhuma rota removida continua registrada (liste as rotas do app, ex.: `app.url_map` no Flask ou a tabela de rotas do Express) e que nenhum código executa entrada do cliente: `grep -rnE "execute\((sql|query|dados|data|body)\b|eval\(|exec\(|child_process" <fontes>`. Uma ocorrência — mesmo atrás de credencial — mantém o finding AP-05 **não corrigido**.
+4. Cada ocorrência é corrigida ou justificada como falso positivo em `validacao.md`.
 
 ### B7. Encerrar e registrar
 

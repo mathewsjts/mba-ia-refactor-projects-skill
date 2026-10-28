@@ -1,6 +1,7 @@
-"""Serialização central por entidade, com lista explícita de campos públicos (T13).
+"""Serializers com whitelist de campos públicos (T13).
 
-Campos sensíveis (senha) não entram na whitelist (BC-02).
+Nenhum serializer expõe `senha` (BC-04). A representação de login não traz
+`criado_em`, mantendo exatamente o contrato original.
 """
 
 
@@ -35,6 +36,24 @@ def serialize_usuarios(usuarios):
     return [serialize_usuario(u) for u in usuarios]
 
 
+def serialize_login(usuario):
+    return {
+        "id": usuario["id"],
+        "nome": usuario["nome"],
+        "email": usuario["email"],
+        "tipo": usuario["tipo"],
+    }
+
+
+def serialize_item_pedido(item):
+    return {
+        "produto_id": item["produto_id"],
+        "produto_nome": item["produto_nome"],
+        "quantidade": item["quantidade"],
+        "preco_unitario": item["preco_unitario"],
+    }
+
+
 def serialize_pedido(pedido):
     return {
         "id": pedido["id"],
@@ -42,15 +61,7 @@ def serialize_pedido(pedido):
         "status": pedido["status"],
         "total": pedido["total"],
         "criado_em": pedido["criado_em"],
-        "itens": [
-            {
-                "produto_id": item["produto_id"],
-                "produto_nome": item["produto_nome"],
-                "quantidade": item["quantidade"],
-                "preco_unitario": item["preco_unitario"],
-            }
-            for item in pedido["itens"]
-        ],
+        "itens": [serialize_item_pedido(i) for i in pedido["itens"]],
     }
 
 

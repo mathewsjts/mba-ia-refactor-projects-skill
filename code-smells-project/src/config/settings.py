@@ -1,11 +1,10 @@
-"""Configuração central (T02): lê o ambiente uma única vez, com defaults seguros.
-
-Nenhum segredo literal vive aqui. Em produção, segredos ausentes falham no boot;
-em desenvolvimento, a SECRET_KEY recebe um valor aleatório efêmero.
-"""
+"""Configuração lida do ambiente uma única vez, com defaults seguros (T02)."""
 import os
 import secrets
 from dataclasses import dataclass
+
+
+APP_VERSION = "1.0.0"
 
 
 def _as_bool(value):
@@ -19,7 +18,6 @@ class Settings:
     host: str
     port: int
     secret_key: str
-    admin_token: str
     database_path: str
     cors_origins: object
 
@@ -45,11 +43,8 @@ class Settings:
             env=env,
             debug=_as_bool(environ.get("APP_DEBUG", "false")),
             host=environ.get("APP_HOST", "127.0.0.1"),
-            # Mesmo default do original (5000) para preservar o comando documentado.
             port=int(environ.get("PORT", "5000")),
             secret_key=secret_key,
-            admin_token=environ.get("ADMIN_TOKEN", ""),
-            # Mesmo arquivo do original para preservar o estado/boot documentado.
             database_path=environ.get("DATABASE_PATH", "loja.db"),
             cors_origins=cors_origins,
         )

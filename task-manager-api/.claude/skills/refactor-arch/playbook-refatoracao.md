@@ -1391,6 +1391,48 @@ Aplica-se ao AP-05 em CRITICAL **e** em HIGH (regra 3 do `SKILL.md`). O finding 
 | Leitura ou gestão administrativa (relatórios financeiros, remoção de usuários) sem login no projeto | **Proteger** com middleware de credencial administrativa lida da configuração (`X-Admin-Token`). |
 | Token de autenticação falso (o projeto tem login) | Duas partes, ambas obrigatórias: (a) emitir token assinado com biblioteca já disponível (`itsdangerous` vem com o Flask; `crypto.createHmac` no Node), mantendo a mesma chave JSON na resposta de login; (b) **exigir** esse token (`Authorization: Bearer <token>`) nas rotas destrutivas — no mínimo todo `DELETE` — e nas administrativas. Cada rota protegida é um `BC-xx` declarado. Só (a) deixa o finding **parcial**, o que é proibido para finding de segurança. |
 
+Classifique **cada rota** do finding numa linha da tabela e aplique a ação daquela linha; um mesmo finding pode ter rotas removidas e rotas protegidas. A coluna "Ação" é obrigatória: "Remover" nunca é trocado por "Proteger" — uma rota de SQL arbitrário atrás de `X-Admin-Token` continua capaz de exfiltrar ou destruir o banco com uma credencial vazada, e o finding fica **não corrigido**. Remover significa apagar a rota, o método do controller e o método do model/service que executa a entrada do cliente; nenhum código que execute SQL recebido permanece no projeto.
+
+**Python — depois (remoção)**
+
+```python
+# src/views/routes.py — as linhas de /admin/query e /admin/reset-db deixam de existir.
+# src/controllers/admin_controller.py e o método executar_query do model são apagados.
+
+# src/models/admin_model.py — sobra só o que o comando de linha de comando usa
+class AdminModel:
+    def __init__(self, database):
+        self._database = database
+
+    def resetar(self):
+        conn = self._database.connection()
+        with conn:
+            conn.execute("DELETE FROM itens_pedido")
+            conn.execute("DELETE FROM pedidos")
+            # … demais tabelas, filhas antes das mães
+```
+
+```python
+# app.py (composition root) — o reset vira comando de desenvolvimento, fora da API
+import click
+
+
+def create_app():
+    app = Flask(__name__)
+    ...
+    admin_model = AdminModel(database)
+
+    @app.cli.command("reset-db")
+    def reset_db():
+        """Apaga todos os dados (uso local)."""
+        admin_model.resetar()
+        click.echo("Banco de dados resetado")
+
+    return app
+```
+
+Uso: `flask --app app reset-db`. Documente o comando no README no lugar da rota.
+
 **Python — depois (proteção)**
 
 ```python
@@ -1486,6 +1528,8 @@ module.exports = (config) => (req, res, next) => {
 - Para o smoke test continuar exercitando a rota, `smoke.sh` envia `X-Admin-Token: ${ADMIN_TOKEN}` nas duas execuções (o original ignora o header) e a validação sobe a aplicação com `ADMIN_TOKEN` definido — ver protocolo, seção A5.
 - Com token de login, `smoke.sh` faz o `POST /login`, guarda o `token` da resposta e o envia como `Authorization: Bearer` nas rotas protegidas; o original ignora o header. Inclua uma chamada anônima a cada rota protegida com id inexistente: 404 no baseline, 401 depois — é a divergência declarada que prova a proteção.
 - Token de login sem `max_age` vale para sempre; não use a mesma `SECRET_KEY` aleatória por processo se houver mais de um worker (tokens emitidos num não validam no outro) — leia-a da configuração (T02).
+- Rota removida responde o 404 padrão do framework, com ou sem credencial; não crie handler especial para ela. No `smoke.sh` ela continua com uma chamada só de leitura (protocolo, A5): 200 no baseline, 404 depois — é a divergência declarada que prova a remoção.
+- Se, depois da remoção, nenhuma rota usa `ADMIN_TOKEN`, retire a variável da configuração, do `.env.example` e do README — credencial órfã sugere uma proteção que não existe.
 
 ---
 

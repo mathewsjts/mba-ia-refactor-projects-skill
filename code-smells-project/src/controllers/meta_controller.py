@@ -1,23 +1,17 @@
-"""Controller de rotas meta: índice da API e health check.
-
-O health não expõe mais secret_key/debug/db_path/ambiente (BC-01); mantém
-status, database, counts e versao.
-"""
+"""Controller de metadados: index e health."""
 from flask import jsonify
 
-VERSAO = "1.0.0"
+from src.config.settings import APP_VERSION
 
 
 class MetaController:
-    def __init__(self, produto_model, usuario_model, pedido_model):
-        self._produtos = produto_model
-        self._usuarios = usuario_model
-        self._pedidos = pedido_model
+    def __init__(self, meta_service):
+        self._service = meta_service
 
     def index(self):
         return jsonify({
             "mensagem": "Bem-vindo à API da Loja",
-            "versao": VERSAO,
+            "versao": APP_VERSION,
             "endpoints": {
                 "produtos": "/produtos",
                 "usuarios": "/usuarios",
@@ -29,13 +23,4 @@ class MetaController:
         })
 
     def health(self):
-        return jsonify({
-            "status": "ok",
-            "database": "connected",
-            "counts": {
-                "produtos": self._produtos.contar(),
-                "usuarios": self._usuarios.contar(),
-                "pedidos": self._pedidos.contar(),
-            },
-            "versao": VERSAO,
-        }), 200
+        return jsonify(self._service.health()), 200

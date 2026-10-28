@@ -2,12 +2,12 @@
 RELATÓRIO DE AUDITORIA DE ARQUITETURA
 ================================
 Projeto:  code-smells-project
-Stack:    Python 3.9.6 + Flask 3.1.1 (flask-cors 5.0.1, sqlite3 stdlib)
+Stack:    Python 3.9.6 + Flask 3.1.1 (flask-cors 5.0.1)
 Arquivos: 4 analisados | ~780 linhas de código
-Data:     2026-10-10
+Data:     2026-10-28
 
 ## Resumo
-CRITICAL: 6 | HIGH: 5 | MEDIUM: 7 | LOW: 4
+CRITICAL: 6 | HIGH: 5 | MEDIUM: 6 | LOW: 5
 
 | # | Severidade | Anti-pattern | Local principal |
 |---|---|---|---|
@@ -16,240 +16,225 @@ CRITICAL: 6 | HIGH: 5 | MEDIUM: 7 | LOW: 4
 | F-03 | CRITICAL | Exposição de dados sensíveis (AP-03) | controllers.py:285-289 |
 | F-04 | CRITICAL | Armazenamento inseguro de senha (AP-04) | models.py:126-129 |
 | F-05 | CRITICAL | Operação privilegiada sem controle de acesso (AP-05) | app.py:59-78 |
-| F-06 | CRITICAL | God Module (AP-06) | models.py:1-314 |
-| F-07 | HIGH | Regra de negócio na camada HTTP (AP-07) | controllers.py:188-255 |
-| F-08 | HIGH | Estado global mutável (AP-08) | database.py:4-10 |
+| F-06 | CRITICAL | God Module (AP-06) | models.py:1-315 |
+| F-07 | HIGH | Regra de negócio na camada HTTP (AP-07) | controllers.py:208-210 |
+| F-08 | HIGH | Estado global mutável (AP-08) | database.py:4-11 |
 | F-09 | HIGH | Operação multi-passo sem transação (AP-09) | models.py:133-169 |
 | F-10 | HIGH | Configuração de execução insegura (AP-10) | app.py:8,88 |
-| F-11 | HIGH | Acoplamento forte sem injeção de dependência (AP-11) | database.py:7-10 |
-| F-12 | MEDIUM | Query N+1 (AP-13) | models.py:171-233 |
-| F-13 | MEDIUM | Validação ausente ou duplicada (AP-14) | controllers.py:30-54 |
-| F-14 | MEDIUM | Tratamento de erro não centralizado (AP-15) | controllers.py (todos os handlers) |
+| F-11 | HIGH | Acoplamento forte sem injeção de dependência (AP-11) | database.py:7-11 |
+| F-12 | MEDIUM | Query N+1 (AP-13) | models.py:171-201 |
+| F-13 | MEDIUM | Validação ausente ou duplicada (AP-14) | controllers.py:28-54 |
+| F-14 | MEDIUM | Tratamento de erro não centralizado (AP-15) | controllers.py:10-12 |
 | F-15 | MEDIUM | CORS permissivo (AP-16) | app.py:9 |
-| F-16 | MEDIUM | Listagem sem paginação (AP-17) | models.py:7,75,206 |
+| F-16 | MEDIUM | Listagem sem paginação (AP-17) | models.py:4-22 |
 | F-17 | MEDIUM | Integridade referencial não garantida (AP-18) | database.py:14-53 |
-| F-18 | MEDIUM | Serialização manual duplicada (AP-24) | models.py:12-21 |
-| F-19 | LOW | Logging via `print` (AP-20) | controllers.py (vários) |
-| F-20 | LOW | Magic numbers e literais duplicados (AP-21) | models.py:256-262 |
-| F-21 | LOW | Código morto (AP-22) | models.py:2 |
-| F-22 | LOW | Nomenclatura pobre (`id` sombreia built-in) (AP-23) | controllers.py:14 |
+| F-18 | LOW | Logging via print (AP-20) | controllers.py:8,208-210 |
+| F-19 | LOW | Magic numbers e literais duplicados (AP-21) | models.py:257-262 |
+| F-20 | LOW | Código morto (AP-22) | models.py:2 |
+| F-21 | LOW | Nomenclatura pobre (AP-23) | models.py:187-193 |
+| F-22 | LOW | Serialização manual duplicada (AP-24) | models.py:12-21 |
 
 ## Findings
 
 ### F-01 [CRITICAL] SQL Injection por concatenação (AP-01)
 Arquivo: models.py:28
-Ocorrências: models.py:48-50, models.py:57-61, models.py:68, models.py:92, models.py:109-111, models.py:126-129, models.py:140, models.py:148-151, models.py:155, models.py:157-166, models.py:174, models.py:188, models.py:192, models.py:220, models.py:224, models.py:279-281, models.py:289-297; app.py:69 (ver também F-05)
-Descrição: Todas as funções de acesso a dados montam SQL por concatenação de string com os valores recebidos, sem bind parameters. Exemplos: `get_produto_por_id` faz `"SELECT * FROM produtos WHERE id = " + str(id)` (models.py:28); `login_usuario` faz `"... WHERE email = '" + email + "' AND senha = '" + senha + "'"` (models.py:109-111), explorável com `' OR '1'='1` para bypass de autenticação; `buscar_produtos` concatena `termo`/`categoria` vindos da query string direto no `LIKE`/`WHERE` (models.py:289-297); `criar_produto`/`criar_usuario` interpolam nome, descrição, email no `INSERT` (models.py:48-50, 126-129). Mesmo onde o valor vem de `<int:id>` da rota, a função de dados não pode depender do chamador.
-Impacto: leitura, alteração ou destruição arbitrária de dados e bypass do login por injeção em campo de texto não convertido.
-Recomendação: substituir toda concatenação por consultas parametrizadas (`cursor.execute(sql, (param, ...))`), construindo a cláusula dinâmica de `buscar_produtos` com placeholders e lista de parâmetros — Playbook T01.
+Ocorrências: models.py:47-50, models.py:57-61, models.py:68, models.py:92, models.py:109-111, models.py:126-129, models.py:140, models.py:148-166, models.py:174, models.py:188, models.py:192, models.py:220, models.py:224, models.py:279-281, models.py:289-297
+Descrição: Toda a camada de dados monta SQL por concatenação de string com entrada do cliente. Ex.: `get_produto_por_id` faz `"SELECT * FROM produtos WHERE id = " + str(id)` (linha 28); `criar_produto` concatena `nome`, `descricao`, `categoria` direto no INSERT (47-50); `login_usuario` concatena `email` e `senha` no WHERE (109-111), permitindo bypass com `' OR '1'='1`; `buscar_produtos` constrói o WHERE com `termo`/`categoria` do querystring (289-297). Nenhuma query usa bind parameters (`?`).
+Impacto: leitura, alteração e destruição arbitrária de dados; bypass de autenticação no login; exfiltração completa do banco por qualquer cliente.
+Recomendação: substituir toda concatenação por queries parametrizadas com placeholders `?` e argumentos vinculados, em funções de acesso a dados por domínio — Playbook T01.
 Contrato: preservado
 
 ### F-02 [CRITICAL] Segredos e credenciais hardcoded (AP-02)
 Arquivo: app.py:7
-Ocorrências: database.py:75-79 (usuário admin `admin@loja.com` / senha `admin123` semeado no boot); controllers.py:289 (a mesma `SECRET_KEY` é devolvida na resposta de `/health` — ver F-03)
-Descrição: `app.config["SECRET_KEY"] = "minha-chave-****"` está fixa no código versionado (app.py:7). O seed de produção cria um administrador com senha fixa `admin123` e dois usuários com senhas literais (database.py:75-79). O mesmo segredo ainda é ecoado em texto na resposta pública de `/health`.
-Impacto: qualquer pessoa com acesso ao repositório obtém o segredo e as credenciais; sessões/tokens assinados com a `SECRET_KEY` podem ser forjados; rotacionar exige novo deploy.
-Recomendação: ler `SECRET_KEY` e credenciais de seed de variáveis de ambiente, com o seed de desenvolvimento isolado da configuração de produção — Playbook T02.
-Contrato: preservado (a remoção do segredo da resposta de `/health` é tratada em F-03 / BC-01)
+Ocorrências: controllers.py:289 (mesma chave vazada na resposta de `/health`), database.py:75-78 (usuário admin com senha fixa `admin123` semeado no boot)
+Descrição: `SECRET_KEY` está literal no código: `app.config["SECRET_KEY"] = "minha-chave-****"` (app.py:7). A mesma chave é devolvida em texto pela rota pública `/health` (controllers.py:289). O seed cria `admin@loja.com` com senha fixa `admin123` embutida no código de produção (database.py:76).
+Impacto: qualquer pessoa com acesso ao repositório obtém a chave e pode forjar sessões; rotacionar exige novo deploy; conta admin com senha pública conhecida.
+Recomendação: mover `SECRET_KEY` e credenciais de seed para variáveis de ambiente lidas por uma camada de config, com `.env.example` documentando as chaves sem valores reais — Playbook T02. Remover a chave da resposta de `/health` (ver F-03).
+Contrato: preservado (a remoção da chave de `/health` é tratada em F-03 / BC-03)
 
 ### F-03 [CRITICAL] Exposição de dados sensíveis (AP-03)
 Arquivo: controllers.py:285-289
-Ocorrências: models.py:83 e models.py:99 (campo `senha` serializado e devolvido por `GET /usuarios` e `GET /usuarios/<id>`)
-Descrição: `health_check` devolve `secret_key`, `debug`, `db_path` e `ambiente` na resposta pública de `/health` (controllers.py:285-289). As funções `get_todos_usuarios` e `get_usuario_por_id` incluem o campo `senha` no dicionário serializado (models.py:83, 99), exposto sem autenticação por `GET /usuarios` e `GET /usuarios/<id>`.
-Impacto: vazamento direto do segredo da aplicação e de detalhes de infraestrutura; exposição de senhas de todos os usuários a qualquer cliente anônimo (violação de LGPD).
-Recomendação: remover `secret_key`/`debug`/`db_path`/`ambiente` de `/health` (mantendo `status`, `database`, `counts`, `versao`) e nunca serializar `senha` nas respostas de usuário — Playbook T13.
-Contrato: exige BC-01 (remoção de campos de `/health`) e BC-02 (remoção de `senha` de `/usuarios`)
+Ocorrências: models.py:83 e models.py:99 (`senha` incluída na serialização de usuário, devolvida por `GET /usuarios` e `GET /usuarios/<id>`)
+Descrição: `health_check` devolve em rota pública `secret_key`, `debug`, `db_path` e `ambiente` (controllers.py:285-289). `get_todos_usuarios` (models.py:79-86) e `get_usuario_por_id` (models.py:95-102) incluem o campo `senha` no dicionário de resposta — o baseline confirma `dados[].senha` em `GET /usuarios` e `dados.senha` em `GET /usuarios/1`.
+Impacto: vazamento direto de segredo da aplicação e das senhas de todos os usuários a qualquer cliente anônimo; violação de LGPD.
+Recomendação: remover `secret_key`/`debug`/`db_path`/`ambiente` de `/health` (manter `status`, `database`, `counts`, `versao`) e nunca serializar `senha` — serializador de usuário dedicado sem o campo sensível — Playbook T13.
+Contrato: exige BC-03 (remove `secret_key`, `debug`, `db_path`, `ambiente` de `/health`) e BC-04 (remove `senha` de `/usuarios` e `/usuarios/<id>`)
 
 ### F-04 [CRITICAL] Armazenamento inseguro de senha (AP-04)
 Arquivo: models.py:126-129
-Ocorrências: models.py:109-111 (`login_usuario` compara senha em texto plano no SQL); database.py:75-83 (seed grava senhas em texto plano)
-Descrição: `criar_usuario` grava a senha recebida diretamente no `INSERT`, em texto plano (models.py:126-129). O login compara a senha por igualdade dentro da query (`... AND senha = '" + senha + "'`, models.py:109-111). O seed insere `admin123`, `123456`, `senha123` em claro (database.py:75-83).
+Ocorrências: models.py:109-111 (login compara senha em texto no SQL), database.py:75-83 (seed grava senhas em texto plano)
+Descrição: `criar_usuario` grava a senha recebida em texto plano no INSERT (models.py:126-129). O login compara `senha` por igualdade direta no WHERE (models.py:109-111). O seed insere `admin123`, `123456`, `senha123` em texto (database.py:76-78). Não há hashing.
 Impacto: um dump do banco revela todas as senhas imediatamente; reuso de senha compromete outros sistemas dos usuários.
-Recomendação: aplicar hash com salt (`werkzeug.security.generate_password_hash`/`check_password_hash`) na criação, no login e no seed, preservando as credenciais dos usuários de exemplo para o login continuar funcionando — Playbook T05.
-Contrato: preservado (mesmas credenciais, mesmo formato de resposta de `/login`)
+Recomendação: aplicar hash com salt (`werkzeug.security.generate_password_hash` / `check_password_hash`, já disponível via Flask) na criação e no login; semear o admin já com hash — Playbook T05. Login continua aceitando as mesmas credenciais, preservando o contrato.
+Contrato: preservado (resposta de login inalterada; `senha` nunca sai na resposta — ver F-03)
 
 ### F-05 [CRITICAL] Operação privilegiada sem controle de acesso (AP-05)
 Arquivo: app.py:59-78
-Ocorrências: app.py:47-57 (`/admin/reset-db` apaga todas as tabelas sem autenticação)
-Descrição: `/admin/query` executa SQL arbitrário vindo do corpo da requisição (`cursor.execute(query)`, app.py:69) sem qualquer autenticação. `/admin/reset-db` executa `DELETE FROM` em todas as tabelas sem autenticação (app.py:51-55). Ambas são alcançáveis por qualquer cliente anônimo.
-Impacto: qualquer cliente anônimo pode exfiltrar todo o banco, executar comandos destrutivos arbitrários ou apagar todos os dados.
-Recomendação: exigir token de administrador (`X-Admin-Token` lido da configuração) nas rotas administrativas, retornando 401 sem token válido; parametrizar/restringir drasticamente o uso de `/admin/query` — Playbook T14.
-Contrato: exige BC-03 (rotas `/admin/*` passam a exigir `X-Admin-Token`)
+Ocorrências: app.py:47-57 (`/admin/reset-db` destrói todas as tabelas sem WHERE nem autenticação)
+Descrição: `POST /admin/query` executa SQL arbitrário enviado pelo cliente — `cursor.execute(query)` onde `query = dados.get("sql")` (app.py:59-78). `POST /admin/reset-db` apaga `itens_pedido`, `pedidos`, `produtos` e `usuarios` em massa (app.py:47-57). Nenhuma das duas exige autenticação; o sistema não possui mecanismo de token (o `/login` não emite token).
+Impacto: qualquer cliente anônimo executa SQL arbitrário e apaga o banco inteiro.
+Recomendação: aplicar a T14 por completo, rota a rota pela tabela de situações — ambas se enquadram em "Remover": `/admin/query` executa SQL do cliente e `/admin/reset-db` destrói dados em massa. Apagar rota, método do controller e qualquer código que execute a entrada. Proteger com token **não** corrige o finding — Playbook T14.
+Contrato: exige BC-01 (`POST /admin/query` removida → 404) e BC-02 (`POST /admin/reset-db` removida → 404)
 
 ### F-06 [CRITICAL] God Module (AP-06)
-Arquivo: models.py:1-314
+Arquivo: models.py:1-315
 Ocorrências: Nenhuma adicional
-Descrição: `models.py` concentra, para os três domínios (produtos, usuários, pedidos), acesso a dados (SQL de todas as tabelas), regra de negócio (orquestração de pedido com baixa de estoque em `criar_pedido`, models.py:133-169; cálculo de desconto e ticket médio em `relatorio_vendas`, models.py:256-272) e serialização manual das respostas (models.py:12-21, 31-40, 78-86, 177-199). São três responsabilidades de natureza diferente misturadas em um único módulo de 314 linhas que atravessa múltiplos domínios.
-Impacto: impossível testar em isolamento; qualquer alteração tem raio de impacto global; a camada de dados não pode ser trocada sem mexer em regra de negócio.
-Recomendação: dividir por domínio em repositórios (dados), extrair a regra de negócio para serviços e a montagem de resposta para a camada de views/serializers — Playbook T03.
+Descrição: `models.py` concentra, num único módulo de 314 linhas, o acesso a dados dos três domínios (produtos, usuários, pedidos/itens) **e** regras de negócio: cálculo de desconto escalonado em `relatorio_vendas` (257-262), orquestração de estoque e totais em `criar_pedido` (133-169). Mistura camada de dados com camada de regra, cruzando domínios distintos.
+Impacto: impossível testar em isolamento; toda mudança tem raio de impacto global; a regra de negócio fica presa ao acesso a dados.
+Recomendação: dividir por domínio em `models/` (produto, usuario, pedido) com acesso a dados puro e mover regras (desconto, montagem de pedido) para `services/` — Playbook T03.
 Contrato: preservado
 
 ### F-07 [HIGH] Regra de negócio na camada HTTP (AP-07)
-Arquivo: controllers.py:188-255
-Ocorrências: controllers.py:208-210 (envio simulado de e-mail/SMS/push em `criar_pedido`); controllers.py:248-250 (notificações de mudança de status); controllers.py:42-54 (regras de preço/estoque/categoria em `criar_produto`); models.py:143,145 (camada de dados retornando `{"erro": ...}` consumido pelo controller para decidir o status, controllers.py:205-206)
-Descrição: handlers decidem regras de domínio e disparam integrações em vez de delegar. `criar_pedido` dispara os efeitos de e-mail/SMS/push diretamente no handler (controllers.py:208-210); `atualizar_status_pedido` contém as regras de notificação por status (controllers.py:247-250); `criar_produto` embute regras de preço negativo, tamanho de nome e enum de categoria. No sentido inverso, `models.criar_pedido` devolve `{"erro": ...}` que o controller usa para montar a resposta HTTP.
-Impacto: regra impossível de reutilizar (CLI, fila, outro endpoint) e de testar sem subir HTTP; acoplamento entre camada de dados e formato de resposta.
-Recomendação: mover regras e integrações para serviços de domínio, deixando os controllers finos (extrair entrada, chamar serviço, escolher status); representar erros de negócio por exceções/retornos neutros, não por dicionários de resposta HTTP — Playbook T04.
+Arquivo: controllers.py:208-210
+Ocorrências: controllers.py:247-250 (decisão de notificação por status no handler), app.py:49-55 e app.py:66-77 (acesso a dados/SQL direto em handlers de rota)
+Descrição: `criar_pedido` dispara integrações (e-mail/SMS/push, simulados por `print`) dentro do handler HTTP (controllers.py:208-210); `atualizar_status_pedido` decide notificações por status no handler (247-250). As rotas admin de `app.py` executam `cursor.execute` diretamente no handler (49-55, 66-77), acoplando HTTP e dados.
+Impacto: regra e integrações impossíveis de reutilizar fora do HTTP e de testar sem subir a API; duplicação quando outro fluxo precisar notificar.
+Recomendação: mover integrações para um `notificacao_service` e a orquestração para `services/`, deixando o controller fino (extrai entrada, chama serviço, escolhe status) — Playbook T04/T09.
 Contrato: preservado
 
 ### F-08 [HIGH] Estado global mutável (AP-08)
-Arquivo: database.py:4-10
+Arquivo: database.py:4-11
 Ocorrências: Nenhuma adicional
-Descrição: `db_connection = None` é uma variável de módulo reatribuída dentro de `get_db` via `global db_connection` (database.py:4,8-10), e a conexão é criada com `check_same_thread=False` (database.py:10), sendo compartilhada entre as threads do servidor.
-Impacto: condições de corrida sob concorrência (cursores da mesma conexão compartilhados), testes que interferem entre si, bugs que só aparecem com múltiplos workers.
-Recomendação: encapsular a conexão por requisição/contexto sem estado global mutável, criando-a no composition root e injetando-a nos repositórios — Playbook T11.
+Descrição: `db_connection = None` em nível de módulo, reatribuída dentro de `get_db` via `global` (database.py:4,8-9), compartilhada entre threads com `check_same_thread=False` (linha 10). Uma única conexão global serve toda a aplicação.
+Impacto: condições de corrida sob concorrência, cursores interferindo entre requisições, bugs que só aparecem com múltiplos workers.
+Recomendação: encapsular a criação de conexão numa factory e fornecer conexão por requisição/contexto, montada no composition root e injetada — Playbook T11.
 Contrato: preservado
 
 ### F-09 [HIGH] Operação multi-passo sem transação (AP-09)
 Arquivo: models.py:133-169
 Ocorrências: Nenhuma adicional
-Descrição: `criar_pedido` lê o estoque num primeiro laço (models.py:139-146), insere o pedido (148-151), insere cada item e decrementa o estoque num segundo laço (154-166) e só então faz `commit()` (168), sem transação explícita nem `rollback`. A verificação de estoque e o decréscimo ocorrem em instruções separadas (leitura em 144, update em 163-166), não atômicas.
-Impacto: em falha parcial entre as escritas, o pedido pode ficar inconsistente (itens ou baixa de estoque incompletos); sob concorrência, duas vendas podem decrementar o mesmo estoque.
-Recomendação: validar todos os itens antes de escrever e envolver inserções e baixa de estoque numa única transação, com rollback em exceção — Playbook T07.
+Descrição: `criar_pedido` insere o pedido (148-151), grava cada item em laço (157-161) e decrementa estoque (163-166), com um único `commit()` no fim (168), mas sem bloco transacional explícito nem `rollback` em exceção. A verificação de estoque (144) é lida antes e o decremento acontece depois, em instruções separadas (leitura-depois-escrita não atômica).
+Impacto: falha parcial no meio das escritas deixa pedido sem itens ou estoque divergente; corrida entre checagem e decremento permite estoque negativo.
+Recomendação: validar todos os itens antes de escrever e envolver as escritas numa transação única (`with conexao:`) com rollback em exceção — Playbook T07.
 Contrato: preservado
 
 ### F-10 [HIGH] Configuração de execução insegura (AP-10)
 Arquivo: app.py:8,88
-Ocorrências: app.py:82 (`get_db()` disparado no bloco `__main__`)
-Descrição: `app.config["DEBUG"] = True` (app.py:8) e `app.run(host="0.0.0.0", port=5000, debug=True)` (app.py:88) fixam modo debug e host/porta literais no código. O debugger do Werkzeug com `host=0.0.0.0` permite execução remota de código.
-Impacto: execução remota de código via debugger, vazamento de stack traces, impossibilidade de configurar ambientes diferentes sem editar código.
-Recomendação: ler `DEBUG`, `HOST` e `PORT` da configuração/ambiente, com `debug` desligado por padrão — Playbook T02.
-Contrato: preservado
+Ocorrências: app.py:88 (`host="0.0.0.0"`, `debug=True`, `port=5000` literais no `app.run`)
+Descrição: `app.config["DEBUG"] = True` (app.py:8) e `app.run(host="0.0.0.0", port=5000, debug=True)` (app.py:88) fixam modo debug e host/porta no código. Com debug ativo, o debugger do Werkzeug permite execução remota de código.
+Impacto: execução remota de código via debugger exposto, vazamento de stack traces, impossibilidade de configurar ambientes sem editar código.
+Recomendação: ler `DEBUG`, `HOST` e `PORT` de ambiente numa camada de config, com default seguro (`debug=False`) — Playbook T02.
+Contrato: preservado (o campo `debug` sai de `/health` via BC-03)
 
 ### F-11 [HIGH] Acoplamento forte sem injeção de dependência (AP-11)
-Arquivo: database.py:7-10
-Ocorrências: models.py:1 e controllers.py:3 (`from database import get_db`); models.py:4-5 etc. (cada função chama `get_db()` diretamente)
-Descrição: a infraestrutura concreta (`sqlite3.connect`) é instanciada dentro de `get_db` (database.py:10) e importada diretamente por `models.py` e `controllers.py` (`from database import get_db`). Nenhuma dependência é injetada; a regra de negócio conhece o SQLite concreto.
-Impacto: testes exigem banco real; trocar SQLite por outro engine significa editar todas as funções de dados; nada é substituível por dublê em teste.
-Recomendação: criar a conexão/repositórios no composition root e injetá-los nas camadas de serviço/dados — Playbook T11.
+Arquivo: database.py:7-11
+Ocorrências: models.py:1 e controllers.py:3 (`from database import get_db` acoplando regra/dados ao SQLite concreto)
+Descrição: `get_db` instancia `sqlite3.connect` diretamente (database.py:10) e é importada por `models.py` (linha 1) e `controllers.py` (linha 3). Regra e dados dependem da infraestrutura concreta, sem interface nem injeção.
+Impacto: testes exigem SQLite real; trocar o banco significa editar a camada de dados inteira.
+Recomendação: criar a conexão no composition root (factory da app) e injetá-la nos repositórios/serviços — Playbook T11.
 Contrato: preservado
 
 ### F-12 [MEDIUM] Query N+1 (AP-13)
 Arquivo: models.py:171-201
-Ocorrências: models.py:203-233 (`get_todos_pedidos` repete o mesmo padrão)
-Descrição: `get_pedidos_usuario` consulta os pedidos e, para cada pedido, consulta os itens (models.py:188) e, para cada item, consulta o nome do produto (models.py:192) — consultas aninhadas dentro de laços sobre resultados do banco. `get_todos_pedidos` faz o mesmo (models.py:220,224).
-Impacto: o número de consultas cresce linearmente com pedidos e itens; a listagem de pedidos pode disparar milhares de queries.
-Recomendação: substituir por `JOIN` entre `pedidos`, `itens_pedido` e `produtos`, ou carregar itens/produtos em lote — Playbook T08.
+Ocorrências: models.py:203-233 (`get_todos_pedidos` com o mesmo padrão), models.py:239-254 (cinco `COUNT(*)` sequenciais em `relatorio_vendas` que caberiam num `GROUP BY`)
+Descrição: `get_pedidos_usuario` consulta os pedidos (174) e, para cada pedido, consulta os itens (188) e, para cada item, consulta o nome do produto (192) — N×M consultas. `get_todos_pedidos` repete o padrão (220-224).
+Impacto: tempo de resposta cresce com o volume; uma listagem com muitos pedidos dispara milhares de consultas.
+Recomendação: resolver com JOIN ou carregar itens e nomes de produto em lote — Playbook T08.
 Contrato: preservado
 
 ### F-13 [MEDIUM] Validação ausente ou duplicada (AP-14)
-Arquivo: controllers.py:30-54
-Ocorrências: controllers.py:74-90 (bloco de validação de produto quase idêntico em `atualizar_produto`); controllers.py:118-121 (`float(preco_min/preco_max)` sem tratamento → 500 com entrada não numérica); controllers.py:242 e 52-53 (listas de enum `status` e `categoria` repetidas como literais)
-Descrição: as validações de `criar_produto` e `atualizar_produto` são blocos quase idênticos duplicados; `buscar_produtos` converte `preco_min`/`preco_max` com `float()` sem try (erro 500 em entrada inválida); os enums de categoria e de status são listas literais repetidas em pontos diferentes.
-Impacto: regras divergem com o tempo entre criar/atualizar; entrada inválida gera 500 em vez de 400; enums duplicados saem de sincronia.
-Recomendação: centralizar validação por recurso (função/esquema único reutilizado em criar e atualizar) e converter tipos com tratamento de erro — Playbook T09.
+Arquivo: controllers.py:28-54
+Ocorrências: controllers.py:72-90 (bloco de validação quase idêntico em `atualizar_produto`, sem a checagem de categoria), controllers.py:118-121 (`float(preco_min)` sem tratamento → 500 com entrada não numérica)
+Descrição: `criar_produto` e `atualizar_produto` repetem quase o mesmo bloco de validação manual; a lista de categorias válidas existe só em `criar_produto` (52-54), divergindo entre os dois. `buscar_produtos` converte `preco_min`/`preco_max` com `float()` sem try (118-121), gerando 500 em entrada inválida.
+Impacto: regras divergentes entre criar e atualizar; erros 500 em entrada malformada.
+Recomendação: centralizar validação por entidade em `controllers/validators` ou `services`, reutilizada em criar e atualizar — Playbook T09.
 Contrato: preservado
 
 ### F-14 [MEDIUM] Tratamento de erro não centralizado (AP-15)
-Arquivo: controllers.py (todos os handlers)
-Ocorrências: controllers.py:10-12, 21-22, 60-62, 95-96, 108-109, 125-126, 133-134, 143-144, 164-165, 185-186, 218-220, 226-227, 234-235, 254-255, 261-262, 291-292; app.py:77-78
-Descrição: cada handler repete `except Exception as e: return jsonify({"erro": str(e)}), 500`, duplicando o tratamento e vazando a mensagem interna da exceção ao cliente. Não há `@app.errorhandler`/`register_error_handler` global.
-Impacto: respostas inconsistentes, vazamento de detalhes internos, duplicação em ~16 pontos.
-Recomendação: registrar um handler de erros central (`@app.errorhandler`) que traduz exceções em respostas padronizadas sem vazar `str(e)`, removendo os try/except repetidos dos handlers — Playbook T10.
-Contrato: preservado (status e formato `{"erro": ...}` mantidos para os casos já tratados)
+Arquivo: controllers.py:10-12
+Ocorrências: todo handler de controllers.py (ex.: 21-22, 95-96, 125-126, 143-144, 164-165, 185-186, 218-220, 226-227, 234-235, 254-255, 261-262) e app.py:77-78 repetem `except Exception as e: return jsonify({"erro": str(e)}), 500`
+Descrição: cada handler captura `Exception` e devolve `str(e)` com 500, duplicando o padrão ~17 vezes e vazando a mensagem interna. Não há `@app.errorhandler` global.
+Impacto: respostas inconsistentes, vazamento de detalhes internos, duplicação massiva.
+Recomendação: registrar handlers de erro globais (`@app.errorhandler`) que traduzem exceções de domínio em status adequados, sem vazar `str(e)` — Playbook T10.
+Contrato: preservado (status e tipo de corpo dos erros atuais mantidos)
 
 ### F-15 [MEDIUM] CORS permissivo (AP-16)
 Arquivo: app.py:9
 Ocorrências: Nenhuma adicional
-Descrição: `CORS(app)` é aplicado sem restrição de `origins`/`resources` (app.py:9), liberando requisições cross-origin de qualquer site.
+Descrição: `CORS(app)` sem `origins`/`resources` (app.py:9) libera requisições cross-origin de qualquer origem. Não há `supports_credentials`, então permanece MEDIUM.
 Impacto: qualquer site pode chamar a API a partir do navegador de um usuário.
-Recomendação: restringir as origens permitidas por configuração (`origins` explícitas) — Playbook T02.
-Contrato: preservado (sem origens de produção definidas, mantém o comportamento para o smoke test local)
+Recomendação: restringir origens a uma allowlist configurável por ambiente — Playbook T02.
+Contrato: preservado (requisições same-origin do smoke test não mudam)
 
 ### F-16 [MEDIUM] Listagem sem paginação (AP-17)
-Arquivo: models.py:7
-Ocorrências: models.py:75 (`SELECT * FROM usuarios`), models.py:206 (`SELECT * FROM pedidos`)
-Descrição: `get_todos_produtos`, `get_todos_usuarios` e `get_todos_pedidos` executam `SELECT *` sem `LIMIT` e devolvem a tabela inteira (models.py:7,75,206).
-Impacto: memória e tempo de resposta crescem com o volume; uma tabela grande pode derrubar o servidor.
-Recomendação: oferecer paginação **opcional** (`?limit`/`?offset`) preservando a resposta padrão quando os parâmetros não são enviados — Playbook T17.
-Contrato: preservado (paginação opcional, sem parâmetros o formato continua idêntico)
+Arquivo: models.py:4-22
+Ocorrências: models.py:72-87 (`get_todos_usuarios`), models.py:203-233 (`get_todos_pedidos`)
+Descrição: `get_todos_produtos`, `get_todos_usuarios` e `get_todos_pedidos` fazem `SELECT *` sem `LIMIT` e devolvem a tabela inteira.
+Impacto: memória e tempo de resposta crescem com o volume; a listagem pode derrubar o servidor.
+Recomendação: aceitar `limit`/`offset` opcionais mantendo o default atual (sem paginação quando não informado), para não quebrar o contrato — Playbook T17.
+Contrato: preservado (paginação aplicada só de forma opcional)
 
 ### F-17 [MEDIUM] Integridade referencial não garantida (AP-18)
 Arquivo: database.py:14-53
-Ocorrências: models.py:65-70 (`deletar_produto` remove o produto sem tratar `itens_pedido` que o referenciam)
-Descrição: o DDL não declara `FOREIGN KEY` nas colunas `usuario_id`, `produto_id`, `pedido_id` nem ativa `PRAGMA foreign_keys = ON` (database.py:14-53). `deletar_produto` apaga o produto sem verificar itens de pedido dependentes, gerando itens órfãos.
-Impacto: registros órfãos, relatórios com itens de produtos inexistentes, inconsistências difíceis de rastrear.
-Recomendação: declarar as foreign keys no schema e ativar `PRAGMA foreign_keys = ON` na conexão; checar dependências antes de remover — Playbook T15.
+Ocorrências: models.py:65-70 (`deletar_produto` sem checar `itens_pedido`)
+Descrição: nenhuma tabela declara `FOREIGN KEY` e não há `PRAGMA foreign_keys = ON` (database.py:14-53, confirmado por busca). `deletar_produto` remove o produto sem tratar itens de pedido que o referenciam (models.py:65-70), deixando órfãos.
+Impacto: itens de pedido apontando para produtos inexistentes; relatórios inconsistentes.
+Recomendação: declarar FKs no DDL, habilitar `PRAGMA foreign_keys = ON` na conexão e tratar dependentes na remoção — Playbook T15.
 Contrato: preservado
 
-### F-18 [MEDIUM] Serialização manual duplicada (AP-24)
-Arquivo: models.py:12-21
-Ocorrências: models.py:31-40 e models.py:304-313 (mesmo dicionário de produto remontado); models.py:78-86 e models.py:95-102 (usuário com `senha`) versus models.py:114-119 (login sem `senha`) — divergência perigosa; models.py:177-199 e models.py:211-231 (pedido)
-Descrição: a montagem de resposta é copiada campo a campo em várias funções. O produto é serializado três vezes; o usuário é serializado incluindo `senha` em duas funções (models.py:83,99) mas sem `senha` no login (models.py:114-119) — divergência que mantém o vazamento de F-03 em alguns caminhos.
-Impacto: alterações de contrato precisam ser replicadas em vários pontos; a divergência de campos sensíveis (`senha`) já causa o vazamento de F-03.
-Recomendação: centralizar a serialização de cada entidade em um único serializer por domínio, sem campos sensíveis — Playbook T13.
-Contrato: preservado (após remoção de `senha` já declarada em BC-02)
-
-### F-19 [LOW] Logging via `print` (AP-20)
-Arquivo: controllers.py:8
-Ocorrências: controllers.py:11,57,61,106,161,179,182,219; app.py:56,83-86 (banner e aviso de reset). Os prints de integração (controllers.py:208-210,248-250) são tratados em F-07.
-Descrição: diagnósticos e banners usam `print` sem níveis nem destino configurável.
-Impacto: sem controle de nível/destino de log; ruído no stdout de produção.
-Recomendação: substituir por `logging` configurado na aplicação — Playbook T16.
+### F-18 [LOW] Logging via print (AP-20)
+Arquivo: controllers.py:8,208-210
+Ocorrências: controllers.py:11,57,61,106,161,179,182,219,248,250; app.py:56,83-86
+Descrição: diagnóstico e banners via `print` espalhados por controllers e `app.py` (14 em controllers, 5 em app.py), incluindo simulações de integração ("ENVIANDO EMAIL/SMS/PUSH") em controllers.py:208-210.
+Impacto: logs sem níveis, estrutura ou destino controlado.
+Recomendação: substituir por `logging` com níveis; as integrações simuladas vão para o `notificacao_service` (F-07) — Playbook T16.
 Contrato: preservado
 
-### F-20 [LOW] Magic numbers e literais duplicados (AP-21)
-Arquivo: models.py:256-262
-Ocorrências: controllers.py:47-50 (tamanhos `2`/`200` de nome); controllers.py:52 e 242 (listas de enum); models.py:257-262 (limiares `10000`/`5000`/`1000` e taxas `0.1`/`0.05`/`0.02` de desconto)
-Descrição: limiares e taxas de desconto e tamanhos de validação estão espalhados como literais no código de regra.
-Impacto: significado de negócio difícil de localizar e alterar com consistência.
-Recomendação: extrair para constantes nomeadas na camada de serviço/configuração — Playbook T16.
+### F-19 [LOW] Magic numbers e literais duplicados (AP-21)
+Arquivo: models.py:257-262
+Ocorrências: controllers.py:47-50 (tamanhos `2`/`200` de nome), controllers.py:52 e 242 (listas de enum literais: categorias e status)
+Descrição: limiares e taxas de desconto (`10000`/`5000`/`1000`, `0.1`/`0.05`/`0.02`) em `relatorio_vendas` (257-262); tamanhos mínimos/máximos de nome (controllers.py:47-50); listas de categorias e de status válidos como literais inline.
+Impacto: regra de negócio difícil de encontrar e alterar com consistência.
+Recomendação: extrair para constantes nomeadas na camada de serviço/config — Playbook T16.
 Contrato: preservado
 
-### F-21 [LOW] Código morto (AP-22)
+### F-20 [LOW] Código morto (AP-22)
 Arquivo: models.py:2
 Ocorrências: database.py:2 (`import os` nunca usado)
-Descrição: `import sqlite3` em models.py:2 não é referenciado (o acesso é via `get_db`); `import os` em database.py:2 não é usado.
-Impacto: ruído e falsa impressão de dependências.
+Descrição: `import sqlite3` em models.py:2 nunca é referenciado (o acesso vem de `get_db`); `import os` em database.py:2 também não é usado (confirmado por busca).
+Impacto: ruído, sugere dependências inexistentes.
 Recomendação: remover os imports não usados — Playbook T16.
 Contrato: preservado
 
-### F-22 [LOW] Nomenclatura pobre (`id` sombreia built-in) (AP-23)
-Arquivo: controllers.py:14
-Ocorrências: controllers.py:64,98,136; models.py:24,43,54,65,89 (parâmetro `id` sombreando o built-in `id` do Python)
-Descrição: diversas funções usam `id` como nome de parâmetro, sombreando o built-in do Python. É um identificador interno (não é chave JSON pública).
-Impacto: legibilidade e risco de confusão; sem impacto de contrato.
-Recomendação: renomear para `produto_id`/`usuario_id` nos identificadores internos — Playbook T16.
-Contrato: preservado (renomeação apenas interna; chaves JSON `id` da resposta não mudam)
+### F-21 [LOW] Nomenclatura pobre (AP-23)
+Arquivo: models.py:187-193
+Ocorrências: controllers.py (uso de `id` sombreando o built-in como parâmetro em vários handlers, ex.: 14,64,98,136)
+Descrição: cursores numerados `cursor2`/`cursor3` (models.py:187,191,219,223) e parâmetro `id` sombreando o built-in em funções de produto/usuário.
+Impacto: legibilidade; `id` como sombra de built-in é armadilha sutil.
+Recomendação: renomear identificadores internos (`produto_id`, cursores por intenção). Chaves JSON públicas não são renomeadas — Playbook T16.
+Contrato: preservado (só identificadores internos)
+
+### F-22 [LOW] Serialização manual duplicada (AP-24)
+Arquivo: models.py:12-21
+Ocorrências: models.py:31-40 e models.py:304-313 (dicionário de produto repetido 3×), models.py:79-86 e 95-102 (usuário), models.py:178-199 e 211-231 (pedido)
+Descrição: o mesmo dicionário de resposta é montado campo a campo em várias funções: produto (3 vezes), usuário (2) e pedido (2). A duplicação do usuário é a que inclui `senha` (ligada a F-03).
+Impacto: divergência de formato entre endpoints e risco de reexpor `senha` ao editar só uma cópia.
+Recomendação: um serializador por entidade, reutilizado — Playbook T13.
+Contrato: preservado (chaves públicas mantidas, exceto a remoção de `senha` em F-03/BC-04)
 
 ## APIs deprecated
-Nenhuma API deprecated detectada. Verificação: import da aplicação com `python -W default -c "import app"` não emitiu `DeprecationWarning`/`LegacyAPIWarning`; versões instaladas são atuais (Flask 3.1.1, flask-cors 5.0.1); busca pelos padrões do catálogo (`datetime.utcnow`, `before_first_request`, `Model.query.get`, `url_quote`, etc.) não encontrou ocorrências. O projeto usa `sqlite3` da stdlib, sem ORM.
+Nenhuma API deprecated detectada. Verificação: (1) busca pelos padrões do catálogo (`utcnow`, `before_first_request`, `json_encoder`, `FLASK_ENV`, `url_quote`, `distutils`, `get_or_404`) — nenhuma ocorrência; (2) o projeto não usa SQLAlchemy nem Node; (3) dependências pinadas em versões atuais (Flask 3.1.1, flask-cors 5.0.1). A Parte B reexecuta o boot com `PYTHONWARNINGS=default` para confirmar ausência de `DeprecationWarning`.
 
 ## Breaking Changes propostos
 | # | Rota | Mudança no contrato | Finding que justifica |
 |---|---|---|---|
-| BC-01 | GET /health | remove os campos `secret_key`, `debug`, `db_path` e `ambiente`; `status`, `database`, `counts` e `versao` permanecem | F-03 — segredo e infraestrutura expostos em endpoint público |
-| BC-02 | GET /usuarios e GET /usuarios/<id> | remove o campo `senha` de cada usuário na resposta | F-03/F-04 — senha de usuários exposta sem autenticação |
-| BC-03 | POST /admin/reset-db e POST /admin/query | passam a exigir o header `X-Admin-Token` válido; sem ele respondem 401 | F-05 — execução de SQL arbitrário e destruição em massa sem autenticação |
-
-Observação: o smoke test já envia `X-Admin-Token` nas rotas `/admin/*` nas duas execuções (ignorado pelo original, exigido após T14). Na validação (Fase 3) o boot define `ADMIN_TOKEN`, de modo que as rotas administrativas voltam a responder como no baseline.
+| BC-01 | POST /admin/query | rota removida da API (T14, "Executa SQL enviado pelo cliente"); passa a responder 404 com ou sem credencial | F-05 — execução de SQL arbitrário por cliente anônimo |
+| BC-02 | POST /admin/reset-db | rota removida da API (T14, "Destrói dados em massa"); passa a responder 404 com ou sem credencial | F-05 — destruição em massa do banco sem autenticação |
+| BC-03 | GET /health | remove os campos `secret_key`, `debug`, `db_path` e `ambiente`; `status`, `database`, `counts` e `versao` permanecem | F-03/F-02 — segredo e config interna expostos em endpoint público |
+| BC-04 | GET /usuarios, GET /usuarios/<id> | remove o campo `senha` da resposta | F-03 — senhas de usuários expostas a qualquer cliente |
 
 ## Plano de refatoração
-Estrutura-alvo (refinada no início da Fase 3 com as guidelines):
-
+Estrutura-alvo (MVC em camadas):
 ```
-app.py                      # composition root + entry point (lê config, registra blueprints e error handler)
-config.py                   # SECRET_KEY, DEBUG, HOST/PORT, ADMIN_TOKEN, CORS origins — tudo via ambiente (T02)
-db/
-  connection.py             # criação/ciclo de vida da conexão sqlite, PRAGMA foreign_keys (T11, T15)
-  schema.py / seed.py       # DDL e seed isolados, seed com senha via hash (T05, T15)
-repositories/               # acesso a dados parametrizado, por domínio (T01, T03)
-  produto_repository.py
-  usuario_repository.py
-  pedido_repository.py
-services/                   # regra de negócio e integrações (T04, T06, T07, T09)
-  produto_service.py
-  usuario_service.py
-  pedido_service.py
-  relatorio_service.py
-  notificacao_service.py    # abstrai e-mail/SMS/push hoje em print (T04)
-controllers/                # controllers finos: entrada → serviço → status (T04, T09)
-views/ (serializers)        # serialização central por entidade, sem campos sensíveis (T13, T24)
-middlewares/
-  error_handler.py          # @app.errorhandler central (T10)
+config/        settings (DEBUG, PORT, HOST, SECRET_KEY, CORS, ADMIN) via ambiente — T02
+models/        database (factory de conexão, DDL, FKs, PRAGMA — T11/T15), produto, usuario, pedido (SQL parametrizado — T01, serialização — T13)
+services/      produto, usuario (hash de senha — T05), pedido (transação — T07, regra de desconto/estoque), notificacao (integrações — T04) — T03/T06/T09
+controllers/   produto, usuario, pedido, relatorio, meta (health/index); controllers finos — T04/T09
+views/routes   registro de rotas + serializers (T13); rotas /admin removidas — T14
+middlewares/   error_handler global (@app.errorhandler) — T10
+app.py         composition root: cria config, conexão, serviços, controllers e registra rotas — T11
 ```
-
-Ordem de execução por camada: config → repositories (models/dados) → services → controllers → views/rotas → middlewares → composition root → limpeza. Transformações principais: T01 (SQL parametrizado), T02 (config/segredos/CORS/debug), T05 (hash de senha), T14 (auth admin), T03 (quebra do God Module), T04/T07 (regra e transação em serviços), T10 (erro central), T08 (N+1), T09 (validação), T13 (serialização), T15 (integridade), T16/T17 (limpeza e paginação opcional).
+Ordem de execução: config → models → services → controllers → views/routes → middlewares → composition root → limpeza (T16).
 
 ================================
 Total: 22 findings
