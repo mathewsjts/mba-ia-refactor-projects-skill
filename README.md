@@ -9,7 +9,7 @@ Skill do Claude Code que analisa uma API backend legada, audita a codebase contr
 | Análise manual dos 3 projetos | ✅ Concluída — [seção A](#a-análise-manual) |
 | Skill `refactor-arch` (SKILL.md + 6 arquivos de referência) | ✅ Construída e testada contra os projetos originais — [seção B](#b-construção-da-skill) |
 | Execução da skill nos 3 projetos | ✅ Concluída — critérios de aceite atingidos em 3/3 — [seção C](#c-resultados) |
-| Relatórios em `reports/` e resultados | ✅ Concluídos — 22, 21 e 17 findings — [seção C](#c-resultados) |
+| Relatórios em `reports/` e resultados | ✅ Concluídos — 22, 20 e 23 findings — [seção C](#c-resultados) |
 
 ## Sumário
 
@@ -225,17 +225,17 @@ Todos surgiram ao executar os projetos originais durante a construção da skill
 
 ## C) Resultados
 
-Na primeira rodada a skill foi executada uma vez em cada projeto, com a mesma cópia byte-idêntica e sem ajustes entre as execuções. Depois das revisões, a skill foi ajustada três vezes (ver abaixo). O projeto 3 foi reexecutado do zero uma vez e o projeto 1 duas vezes, sempre a partir do código legado e com a nova versão da skill — que continua byte-idêntica nas três pastas. Cada execução foi feita com `claude -p "/refactor-arch"` e, depois da pausa da Fase 2, aprovada retomando a mesma sessão com `s`. Os números abaixo foram conferidos de forma independente: cada aplicação refatorada foi subida com banco limpo, `smoke.sh` foi reexecutado e o resultado foi comparado com o baseline gravado antes da refatoração.
+Na primeira rodada a skill foi executada uma vez em cada projeto, com a mesma cópia byte-idêntica e sem ajustes entre as execuções. Depois das revisões, a skill foi ajustada quatro vezes (ver abaixo). Os projetos 1 e 3 foram reexecutados do zero duas vezes e o projeto 2 uma vez, sempre a partir do código legado e com a nova versão da skill — que continua byte-idêntica nas três pastas. Cada execução foi feita com `claude -p "/refactor-arch"` e, depois da pausa da Fase 2, aprovada retomando a mesma sessão com `s`. Os números abaixo foram conferidos de forma independente: cada aplicação refatorada foi subida com banco limpo, `smoke.sh` foi reexecutado e o resultado foi comparado com o baseline gravado antes da refatoração.
 
 ### Resumo dos relatórios de auditoria
 
 | Projeto | Análise manual | CRITICAL | HIGH | MEDIUM | LOW | Total | Corrigidos na Fase 3 | Relatório |
 |---|---|---|---|---|---|---|---|---|
 | `code-smells-project` | 17 | 6 | 6 | 5 | 5 | **22** | 22/22 — cada um com os passos da transformação conferidos em `conformidade.md` | [audit-project-1.md](reports/audit-project-1.md) |
-| `ecommerce-api-legacy` | 16 | 5 | 8 | 4 | 4 | **21** | 20/21 — F-16 (paginação) parcial | [audit-project-2.md](reports/audit-project-2.md) |
-| `task-manager-api` | 16 | 3 | 3 | 7 | 4 | **17** | 17/17 | [audit-project-3.md](reports/audit-project-3.md) |
+| `ecommerce-api-legacy` | 16 | 5 | 8 | 3 | 4 | **20** | 20/20 — passos conferidos em `conformidade.md` | [audit-project-2.md](reports/audit-project-2.md) |
+| `task-manager-api` | 16 | 5 | 5 | 9 | 4 | **23** | 23/23 — passos conferidos em `conformidade.md` | [audit-project-3.md](reports/audit-project-3.md) |
 
-O único finding parcial é de paginação no projeto 2 (MEDIUM, não é de segurança) e foi deixado assim de propósito, pela regra de contrato da skill: paginação obrigatória mudaria o formato da resposta. No projeto 1, a execução anterior também deixava a paginação de `/pedidos` parcial, porque um `LIMIT` sobre as linhas do `LEFT JOIN` pedido × itens cortaria os itens de um pedido no meio. A reexecução resolveu isso paginando por uma subconsulta de ids (`WHERE p.id IN (SELECT id FROM pedidos ORDER BY id LIMIT ? OFFSET ?)`).
+Nenhum finding ficou parcial. Nas execuções anteriores, a paginação ficava parcial em dois projetos. No P2, paginação obrigatória mudaria o formato da resposta; a reexecução aplicou `limit`/`offset` opcionais, preservando a resposta completa sem parâmetros. No P1, um `LIMIT` sobre as linhas do `LEFT JOIN` pedido × itens cortaria os itens de um pedido no meio; a reexecução paginou por uma subconsulta de ids (`WHERE p.id IN (SELECT id FROM pedidos ORDER BY id LIMIT ? OFFSET ?)`).
 
 **Ajuste após a revisão.** Na primeira execução do projeto 3, o F-04 (AP-05, HIGH) terminou parcial: a skill assinou o token `fake-jwt-token-<id>`, mas `DELETE /tasks`, `/users` e `/categories` continuaram abertos a clientes anônimos, porque a regra 3 do `SKILL.md` só permitia quebrar contrato em finding CRITICAL. A refatoração não eliminava o impacto que a própria auditoria apontava. A regra passou a cobrir findings de segurança CRITICAL **ou HIGH**, e um finding de segurança não pode mais terminar parcial por motivo de contrato. O `template-relatorio.md`, o catálogo (AP-05), a T14 do playbook (token do login exigido como `Authorization: Bearer` nas rotas destrutivas, com exemplo de `require_auth`) e o protocolo de validação (captura do token no `smoke.sh` e chamada anônima de prova por rota protegida) foram ajustados juntos. Na reexecução, o relatório declarou BC-05 a BC-07 antes da confirmação, e a Fase 3 aplicou a T14: as três rotas `DELETE` respondem 401 sem token válido e 200 com o token emitido pelo `POST /login`.
 
@@ -266,6 +266,43 @@ Antes de reexecutar, a prova de concorrência foi rodada contra o código da ent
 
 Nessa reexecução, a auditoria também aplicou a regra 3 por inteiro no F-05. Além de remover `/admin/query` e `/admin/reset-db`, o `POST /login` passou a emitir token assinado (`itsdangerous`), e as rotas que alteram o catálogo, criam ou listam pedidos e expõem usuários ou o relatório exigem `Authorization: Bearer` (BC-02 a BC-12). Na execução anterior, `DELETE /produtos/<id>` e `PUT /pedidos/<id>/status` continuavam abertos a anônimos. Os Breaking Changes foram declarados no relatório e aprovados antes da Fase 3.
 
+**Quarto ajuste (revisão própria dos três projetos).** Depois da terceira revisão, cada projeto passou por uma revisão independente com a mesma pergunta do professor: algum finding foi contado como corrigido sem que a transformação tenha sido aplicada por inteiro? Cada revisor conferiu os findings contra os passos do playbook e subiu a aplicação para provar o que achasse. O P2 e o P3 ainda eram de execuções anteriores às conferências do terceiro ajuste, e foi neles que apareceram os casos mais graves:
+
+- **P3 · F-04 (T14), anônimo vira admin.** `POST /users` e `PUT /users/<id>` continuavam abertos, aceitando `role` e `password`. Na prova, um anônimo criou uma conta `admin` e apagou usuários, e outro trocou a senha da Maria e entrou na conta dela. A auditoria tinha decidido manter essas rotas abertas "para preservar o contrato", e a docstring do middleware dizia que as rotas privilegiadas exigiam token. Além disso, o token continuava valendo depois de a conta ser apagada ou desativada.
+- **P2 · F-08 (T07), o mesmo erro do F-09.** O usuário do checkout era criado fora da transação, numa conexão `sqlite3` compartilhada. O `ROLLBACK` da transação de outra requisição apagava esse usuário, o id era reaproveitado e a matrícula ia para outro cliente. Num teste de estresse com 200 checkouts novos, 13 receberam 500, 9 sumiram do relatório e 8 apareceram duplicados. O e-mail também era checado antes de inserir, sem `UNIQUE`: 10 checkouts paralelos criavam até 6 contas com o mesmo e-mail.
+- **P2 e P3 · T09, passo 4.** Cerca de 20 entradas de tipo errado ainda respondiam 500. No P2, uma delas registrava a senha no log.
+- **P3 · F-11 (T15).** A cascata ficou só no schema, e num banco criado pelo legado apagar um usuário com tarefas dava 500.
+
+Ajustes feitos (as três cópias continuam byte-idênticas):
+
+- **Regra 3, catálogo AP-05 e T14.**
+  - Gravar perfil, senha ou estado da conta (`role`, `password`, `active`) é operação privilegiada, mesmo em `POST`/`PUT`. "Preservar o contrato" nunca justifica deixar essas rotas abertas.
+  - O `require_auth` recarrega o usuário a cada requisição: conta apagada ou desativada perde o acesso na hora.
+  - Se o seed de produção não cria usuários, o projeto ganha um caminho documentado para criar o primeiro admin.
+- **T07 e AP-09.**
+  - As escritas auxiliares do fluxo, como criar o usuário no checkout, ficam dentro da transação. Numa conexão compartilhada, nenhuma escrita roda fora da fila.
+  - Unicidade é tratada como a mesma corrida de "verificar e depois gravar": `UNIQUE` no banco, com a violação convertida no erro da checagem (409, não 500).
+- **T09.** O passo 4 lista os casos que não podem virar 500 (`null`, booleano, corpo em lista, `NaN`, inteiro gigante) e exige o validador também na atualização.
+- **Protocolo de validação.**
+  - **B6.2:** ganhou a prova de unicidade em paralelo.
+  - **B6.3:** gera o `tipos.sh`, que envia entradas de tipo inválido para cada rota de escrita e exige 4xx em todas. Ele roda fora do `smoke.sh`, porque no legado alguns desses casos derrubam o processo.
+
+O P2 e o P3 foram reexecutados do zero com essa versão. Com o código novo, refiz os mesmos ataques e o mesmo teste de estresse:
+
+| Projeto | Verificação | Antes da reexecução | Depois |
+|---|---|---|---|
+| 3 | `POST /users` anônimo com `"role":"admin"` | 201, conta admin | 201, gravado como `user` |
+| 3 | `PUT /users/2` trocando a senha, sem token / com token de outra conta | 200, conta tomada | 401 / 403 |
+| 3 | Token de conta desativada | 200, apaga tarefa | 401 |
+| 3 | `POST /users` paralelos com o mesmo e-mail | 8 requisições: 1×201 + 7×500 | 10 requisições: 1×201 + 9×409, 1 registro |
+| 3 | `DELETE /users/2` e `DELETE /categories/1` sobre o banco criado pelo legado | 500 `IntegrityError` | 200; tarefas do usuário apagadas e da categoria desvinculadas, como no legado |
+| 2 | Estresse da revisão: 200 checkouts novos em paralelo com `DELETE` de usuários | 13×500, 9 ausentes e 8 duplicados no relatório | 200×200, nenhum ausente, nenhum duplicado |
+| 2 | Checkouts paralelos com o mesmo e-mail novo | 10 requisições: 4 a 6 contas | 25 requisições: 1 conta (`UNIQUE` em `users.email`) |
+| 2 | `"pwd":123456` no checkout | 500, senha no log | 400, nada no log |
+| 2 e 3 | `tipos.sh` (29 e 83 casos) | — | nenhum 5xx |
+
+No P2, a Fase 3 trocou o driver `sqlite3` pelo `better-sqlite3`, que é síncrono. Isso elimina a intercalação de escritas na conexão compartilhada e zerou o `npm audit`. O P3 ganhou o F-06 (e-mails expostos a anônimos, AP-03 HIGH), e por isso `GET /users`, `GET /users/<id>` e `GET /reports/user/<id>` passaram a exigir login (BC-11 a BC-13). Os novos Breaking Changes foram aprovados antes da Fase 3.
+
 ### Estrutura antes e depois
 
 **Projeto 1 — `code-smells-project`** (monolito → estrutura canônica em `src/`, entry point mantido na raiz)
@@ -293,14 +330,14 @@ removidos: POST /admin/query e POST /admin/reset-db (T14 "Remover"); o reset vir
 ```
 ANTES                                   DEPOIS
 ecommerce-api-legacy/                   ecommerce-api-legacy/
-├── api.http                            ├── api.http, package.json (sqlite3 5.1.7 → 6.0.1), .env.example
+├── api.http                            ├── api.http, package.json (sqlite3 5.1.7 → better-sqlite3), .env.example
 ├── package.json                        └── src/
 └── src/                                    ├── app.js              # composition root + listen
     ├── app.js         # bootstrap          ├── errors.js
     ├── AppManager.js  # God Class          ├── config/             # index.js (env), logger.js
-    └── utils.js       # segredos, cache    ├── models/             # database (promisificado + transação), passwords (scrypt),
-                       # global, hash       │                       # course, user, enrollment, report (JOIN)
-                       # caseiro            ├── services/           # checkout, report, user, payment.gateway, cache
+    └── utils.js       # segredos, cache    ├── models/             # database (transação, UNIQUE em email), course, user,
+                       # global, hash       │                       # enrollment, payment, audit, report (JOIN)
+                       # caseiro            ├── services/           # checkout, report, user, password (scrypt), payment.gateway, cache
                                             ├── controllers/        # checkout, report, user + validators
                                             ├── views/              # routes.js, serializers.js
                                             └── middlewares/        # errorHandler, asyncHandler, requireAdmin
@@ -312,13 +349,13 @@ ecommerce-api-legacy/                   ecommerce-api-legacy/
 ANTES                                   DEPOIS
 task-manager-api/                       task-manager-api/
 ├── app.py         # app, config,       ├── app.py              # create_app() + `app` exportado (seed.py continua funcionando)
-│                  # create_all         ├── config.py, constants.py, errors.py, clock.py, passwords.py, database.py
+│                  # create_all         ├── config/settings.py, constants.py, errors.py, database.py (FK + índice único)
 ├── database.py                         ├── seed.py
-├── seed.py                             ├── models/             # user, task, category + repositories.py (acesso a dados)
-├── models/        # user, task,        ├── services/           # task, user, category, report, auth (emite e verifica token assinado)
+├── seed.py                             ├── models/             # user, task, category, clock, passwords
+├── models/        # user, task,        ├── services/           # task, user, category, report, auth (token assinado; usuário recarregado)
 │                  # category           ├── controllers/        # task, user, category, report + validators   (novo)
-├── routes/        # regras, consultas  ├── routes/             # só mapeiam rota → controller (DELETE com require_auth) + serializers.py
-│                  # e serialização     └── middlewares/        # error_handler.py, auth.py (Bearer)           (novo)
+├── routes/        # regras, consultas  ├── routes/             # task, user, category, report, system + serializers.py (require_auth por rota)
+│                  # e serialização     └── middlewares/        # error_handler.py, auth.py (Bearer, dono/admin)  (novo)
 ├── services/      # notification
 │                  # (sem uso)          removidos: services/notification_service.py, utils/ (código morto)
 └── utils/         # helpers (sem uso)  requirements.txt: marshmallow, requests e python-dotenv removidos (nunca importados)
@@ -370,8 +407,8 @@ task-manager-api/                       task-manager-api/
 - [x] Relatório segue o template definido nos arquivos de referência
 - [x] Cada finding tem arquivo e linhas exatos
 - [x] Findings ordenados por severidade (CRITICAL → LOW)
-- [x] Mínimo de 5 findings identificados — 21
-- [x] Detecção de APIs deprecated incluída — `sqlite3@5.1.7` com transitivas vulneráveis (`npm audit`: 14 vulnerabilidades, 2 critical)
+- [x] Mínimo de 5 findings identificados — 20
+- [x] Detecção de APIs deprecated incluída — `sqlite3@5.1.7` com transitivas vulneráveis (`npm audit`: 17 vulnerabilidades; 9 avisos `npm warn deprecated`)
 - [x] Skill pausa e pede confirmação antes da Fase 3
 
 #### Fase 3 — Refatoração
@@ -383,7 +420,8 @@ task-manager-api/                       task-manager-api/
 - [x] Error handling centralizado — `src/middlewares/errorHandler.js`
 - [x] Entry point claro — `npm start` → `src/app.js`
 - [x] Aplicação inicia sem erros
-- [x] Endpoints originais respondem corretamente — 7/7 idênticos com `X-Admin-Token`; sem token, as rotas admin respondem 401 (BC-01, BC-02)
+- [x] Endpoints originais respondem corretamente — 11/13 idênticos; 2 divergências declaradas (BC-01, BC-02: rotas admin sem `X-Admin-Token` → 401)
+- [x] Passos do playbook conferidos — 20/20 findings; prova de unicidade (25 checkouts paralelos → 1 conta) e `tipos.sh` com 29 casos, nenhum 5xx
 
 </details>
 
@@ -400,20 +438,21 @@ task-manager-api/                       task-manager-api/
 - [x] Relatório segue o template definido nos arquivos de referência
 - [x] Cada finding tem arquivo e linhas exatos
 - [x] Findings ordenados por severidade (CRITICAL → LOW)
-- [x] Mínimo de 5 findings identificados — 17
+- [x] Mínimo de 5 findings identificados — 23
 - [x] Detecção de APIs deprecated incluída — `Query.get()` (`LegacyAPIWarning` em runtime) e `datetime.utcnow()`
 - [x] Skill pausa e pede confirmação antes da Fase 3
 
 #### Fase 3 — Refatoração
 - [x] Estrutura de diretórios segue padrão MVC — `controllers/` e `middlewares/` criados; `routes/` mantido como Views
-- [x] Configuração extraída para módulo de config (sem hardcoded) — `config.py`
+- [x] Configuração extraída para módulo de config (sem hardcoded) — `config/settings.py`
 - [x] Models criados para abstrair dados — consultas saíram das rotas para os models
 - [x] Views/Routes separadas para visualização ou roteamento
 - [x] Controllers concentram o fluxo da aplicação
 - [x] Error handling centralizado — `middlewares/error_handler.py`
 - [x] Entry point claro — `python seed.py` → `python app.py`, mesmos comandos documentados
 - [x] Aplicação inicia sem erros
-- [x] Endpoints originais respondem corretamente — 26/33 idênticos; 7 divergências declaradas = BC-01 a BC-04 (remoção de `password`) e BC-05 a BC-07 (`DELETE` anônimo → 401). Com o token do login, os três `DELETE` respondem igual ao baseline
+- [x] Endpoints originais respondem corretamente — 44/57 idênticos; 13 divergências declaradas (BC-01 a BC-13: `password` fora das respostas, token assinado, 401 anônimo em `PUT /users`, nos `DELETE` e nas leituras com e-mail)
+- [x] Passos do playbook conferidos — 23/23 findings; prova de unicidade (`POST` e `PUT /users` paralelos → 1 registro, 409 nos demais) e `tipos.sh` com 83 casos, nenhum 5xx
 
 </details>
 
@@ -438,28 +477,30 @@ Prova de concorrência: estoque 3, 12 pedidos paralelos → 3×201, 9×400, 0×5
 Avisos de depreciação após o replay: nenhum
 ```
 
-**Projeto 2** — `PORT=3000 ADMIN_TOKEN=… NODE_OPTIONS=--trace-deprecation npm start`
+**Projeto 2** (reexecução) — `ADMIN_TOKEN=… NODE_OPTIONS=--trace-deprecation npm start`
 
 ```
+> desafio-arquitetura-ia-boilerplate@1.0.0 start
 > node src/app.js
-{"level":"info","message":"Frankenstein LMS rodando","port":3000}
 
-Smoke test: Requisições: 7 | Idênticas ao baseline: 7 | Regressões: 0
-GET /api/admin/financial-report sem X-Admin-Token → 401 Não autorizado
-npm audit: 14 vulnerabilidades (2 critical, 8 high) → 1 moderate (qs, transitiva do Express 4)
+Smoke test: Requisições: 13 | Idênticas ao baseline: 11 | Divergências declaradas: 2 (BC-01, BC-02) | Regressões: 0
+GET /api/admin/financial-report e DELETE /api/users/:id sem X-Admin-Token → 401 Não autorizado
+Unicidade: 25 checkouts paralelos com o mesmo e-mail novo → 1 registro em users
+Tipos inválidos: 29 casos, nenhum 5xx (antes: card numérico derrubava o processo)
+npm audit: 17 vulnerabilidades → 0; npm warn deprecated: 9 → 0
 ```
 
-**Projeto 3** (reexecução) — `python seed.py` e depois `PORT=5055 PYTHONWARNINGS=default .venv/bin/python app.py`
+**Projeto 3** (segunda reexecução) — `python seed.py` e depois `PORT=5050 PYTHONWARNINGS=default .venv/bin/python app.py`
 
 ```
  * Serving Flask app 'app'
  * Debug mode: off
- * Running on http://127.0.0.1:5055
-127.0.0.1 - - [24/Oct/2026 15:21:18] "GET /tasks HTTP/1.1" 200 -
+ * Running on http://127.0.0.1:5050
 
-Smoke test: 33 requisições | 26 idênticas ao baseline | 7 divergências declaradas (BC-01 a BC-07) | 0 regressões
-DELETE /tasks/999999, /users/999999, /categories/999999 sem token → 401 (antes 404)
-DELETE /tasks/10, /users/3, /categories/4 com Authorization: Bearer <token do /login> → 200 (igual ao baseline)
+Smoke test: 57 requisições | 44 idênticas ao baseline | 13 divergências declaradas (BC-01 a BC-13) | 0 regressões
+POST /users anônimo com role admin → 201 com role "user"; PUT /users/<id> sem token → 401
+Unicidade: 10 POST /users paralelos com o mesmo e-mail → 1×201 + 9×409; idem com PUT
+Tipos inválidos: 83 casos, nenhum 5xx
 Avisos de depreciação após o replay: nenhum (antes: LegacyAPIWarning em task_routes.py, user_routes.py, report_routes.py)
 ```
 
@@ -476,31 +517,42 @@ Verificações extras feitas fora da skill, contra as aplicações refatoradas:
 | 1 | `DELETE /produtos/1` e `POST /pedidos` sem token | 200 / 201 | 401 |
 | 1 | `GET /health` | devolve `secret_key` | sem `secret_key`, `debug`, `db_path` |
 | 2 | `GET /api/admin/financial-report` sem token | 200 | 401 |
+| 2 | 200 checkouts novos em paralelo com `DELETE` de usuários | legado: 200×200 | 200×200, nenhum ausente nem duplicado no relatório |
 | 2 | log do checkout | número do cartão e `pk_live_…` | nenhum dado sensível |
 | 3 | `POST /login` | devolve hash MD5 em `user.password` | sem `password`; token assinado |
 | 3 | `DELETE /tasks/1`, `/users/2`, `/categories/1` sem token | 200, apaga | 401 |
 | 3 | `DELETE /tasks/1` com `Bearer fake-jwt-token-1` ou token adulterado | — | 401 |
 | 3 | `DELETE /tasks/1` com `Bearer <token do /login>` | — | 200 |
-| 3 | `GET /tasks` e `POST /tasks` sem token | 200 / 201 | 200 / 201 (rotas não destrutivas seguem abertas) |
+| 3 | `GET /tasks` e `POST /tasks` sem token | 200 / 201 | 200 / 201 (rotas sem dado pessoal seguem abertas) |
+| 3 | `POST /users` anônimo com `role: admin` e `PUT /users/2` sem token | 201 admin / 200 | 201 `user` / 401 |
 | 1, 2, 3 | rota inexistente / método não permitido | 404 / 405 | 404 / 405 (preservados) |
 
 ### Comportamento da skill em stacks diferentes
 
-- **Quatro iterações.** Os critérios de aceite foram atingidos nos três projetos na primeira execução. A primeira revisão apontou que o F-04 do P3 ficou parcial pela regra de contrato; depois do ajuste na regra, uma reexecução do P3 fechou o finding sem nenhuma regressão. A segunda revisão apontou que o F-05 do P1 protegeu com token rotas que a T14 manda remover; depois do ajuste no texto da skill, uma reexecução do P1 removeu as duas rotas sem nenhuma regressão. A terceira revisão apontou que o F-09 do P1 foi dado como corrigido sem o passo 3 da T07. A Fase 3 passou a exigir e registrar todos os passos de cada transformação, a validação passou a conferi-los e a provar a concorrência, e uma nova reexecução do P1 fechou a corrida sem nenhuma regressão.
+- **Cinco iterações.** Os critérios de aceite foram atingidos nos três projetos na primeira execução. A primeira revisão apontou que o F-04 do P3 ficou parcial pela regra de contrato; depois do ajuste na regra, uma reexecução do P3 fechou o finding sem nenhuma regressão. A segunda revisão apontou que o F-05 do P1 protegeu com token rotas que a T14 manda remover; depois do ajuste no texto da skill, uma reexecução do P1 removeu as duas rotas sem nenhuma regressão. A terceira revisão apontou que o F-09 do P1 foi dado como corrigido sem o passo 3 da T07. A Fase 3 passou a exigir e registrar todos os passos de cada transformação, a validação passou a conferi-los e a provar a concorrência, e uma nova reexecução do P1 fechou a corrida sem nenhuma regressão. Por fim, uma revisão própria dos três projetos procurou o mesmo padrão e o achou no P2 (T07) e no P3 (T14). Depois do quarto ajuste, os dois foram reexecutados e os ataques da revisão deixaram de funcionar.
 - **A Fase 3 se adaptou ao ponto de partida.** O monolito Flask (P1) ganhou a estrutura canônica em `src/`, mantendo `python app.py`. A God Class Express (P2) foi desmontada dentro do `src/` existente, com callbacks convertidos para `async/await` e checkout transacional. O projeto com camadas parciais (P3) evoluiu no lugar: nenhuma pasta existente foi renomeada, `controllers/` e `middlewares/` foram criados e `from app import app, db` continuou funcionando no `seed.py`.
 - **A detecção mudou conforme a stack.** No Node, a depreciação veio de `npm audit` e da árvore de dependências; no Flask/SQLAlchemy, de `LegacyAPIWarning` em runtime. O conflito da porta 5000 (AirPlay no macOS) foi detectado nos dois projetos Flask, que subiram em outra porta sem editar código.
-- **O contrato HTTP foi preservado.** Só mudaram as respostas declaradas como Breaking Changes antes da aprovação: 15 no P1 (14 de rota e 1 de execução, debug e host), 2 no P2 e 7 no P3, todos ligados a findings de segurança (CRITICAL ou HIGH).
-- **Custo e duração.** Fases 1–2 levaram de 6 a 8 minutos por projeto; a Fase 3, de 8 a 16 minutos.
+- **O contrato HTTP foi preservado.** Só mudaram as respostas declaradas como Breaking Changes antes da aprovação: 15 no P1 (14 de rota e 1 de execução, debug e host), 2 no P2 e 13 no P3, todos ligados a findings de segurança (CRITICAL ou HIGH).
+- **Custo e duração.** Fases 1–2 levaram de 6 a 10 minutos por projeto; a Fase 3, de 8 a 16 minutos. Nas últimas reexecuções, cada projeto custou de US$ 9 a US$ 13.
 
 #### Limitações observadas
 
 Registradas para a próxima iteração da skill. Nenhuma afeta os critérios de aceite.
 
-1. **Bug remanescente no P3 (persiste na reexecução):** `POST /tasks` com `"priority": "2"` ainda responde 500 (`TypeError` em `controllers/validators.py:31`), embora o finding de validação conste como corrigido. A resposta passou de HTML para `{"error": "Erro interno"}`, mas a conversão de tipo continua faltando. O smoke test não tinha um caso de tipo errado, então a validação não exercitou o problema. Correção na skill: exigir, no protocolo A4, um caso de "tipo inválido" por rota de escrita.
-2. **Import contra a regra de dependência:** em P2, `report.service.js` importa `views/serializers` (na primeira execução do P3, `services/*.py` também importava `controllers.validators`; na reexecução isso não se repetiu). Os greps da seção 3 das guidelines não verificam imports entre camadas. Correção: acrescentar um grep de "import para camada acima".
+1. **Pontos remanescentes no P1, achados na revisão própria e não corrigidos.** O P1 não foi reexecutado uma terceira vez, porque outra reexecução traria mais variação do que ganho (de uma para a outra, os Breaking Changes passaram de 4 para 15). Os três primeiros já estão cobertos pelo quarto ajuste da skill e seriam corrigidos numa nova execução.
+   - **Sem admin em produção:** com `APP_ENV=production` o seed não cria usuários e o cadastro sempre grava `cliente`, então as rotas de admin ficam inacessíveis sem SQL manual (T14, armadilha "primeiro admin em produção").
+   - **Números sem validação de finitude:** `NaN` e `Infinity` passam pela validação de preço e estoque, e o produto fica corrompido (T09, passo 4).
+   - **Inteiro gigante em id:** `/produtos/99999999999999999999` responde 500 por `OverflowError`, e o legado respondia 404 (T09, passo 4).
+   - **Login:**
+     - o tempo de resposta revela se o e-mail está cadastrado (cerca de 150 vezes mais lento para e-mail existente);
+     - como o e-mail não é único, contas duplicadas com o e-mail de outra pessoa deixam o login dela lento (7 s com 30 duplicatas).
+   - **`/health`:** continua contando produtos desativados pela exclusão lógica.
+2. **Risco de cobrança sem registro no P2:** a cobrança acontece antes da transação, porque o gateway externo não participa dela. Hoje o gateway é simulado; com um real, uma falha depois da aprovação deixaria o cliente cobrado sem matrícula. O risco está registrado no relatório (T07, passo 2).
 3. **Relatório resumido no terminal:** nos três projetos o terminal mostrou uma versão condensada dos findings, apesar de o `SKILL.md` pedir o relatório completo. O arquivo gravado em `.refactor-arch/relatorio-auditoria.md` (copiado para `reports/`) está completo.
-4. **Classificação do P1:** nas duas primeiras execuções, a Fase 1 classificou o projeto como "Camadas parciais" em vez de "Monolítica", mas a Fase 3 aplicou o caminho de monolito (`src/` canônico) mesmo assim. Na segunda reexecução, a classificação saiu "Monolítica sem camadas".
-5. **Idioma:** a narração entre etapas do P1 saiu em inglês, embora os blocos de saída estejam em português. (Na primeira execução, o P3 também anunciou 34 requisições no smoke test com 33 no arquivo; na reexecução a contagem bateu.)
+4. **Idioma:** na primeira execução, a narração entre etapas do P1 saiu em inglês, embora os blocos de saída estivessem em português. Isso não foi reavaliado nas reexecuções, porque o modo `claude -p` só devolve a mensagem final, e essa saiu em português nos três projetos.
+5. **Variação entre execuções:** o escopo de Breaking Changes mudou de uma execução para outra do mesmo projeto (P1: 4 → 15; P3: 7 → 13), porque cada auditoria classifica as rotas pela tabela da T14 de forma independente. As duas aplicam as regras, mas a mais recente aplica a regra 3 por inteiro.
+
+Resolvidas pelo quarto ajuste e conferidas nas reexecuções: o `"priority": "2"` que respondia 500 no P3 (agora 400; o `tipos.sh` cobre esse tipo de caso), o service do P2 que importava `views/serializers` (nenhum import para camada acima nos dois projetos) e a classificação do P1 como "Camadas parciais" (saiu "Monolítica sem camadas").
 
 ---
 

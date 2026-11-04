@@ -1,7 +1,9 @@
-"""Camada de configuração: lê o ambiente uma única vez, com defaults seguros."""
+"""Configuração lida do ambiente uma única vez, no composition root (T02)."""
 import os
 import secrets
 from dataclasses import dataclass
+
+from dotenv import load_dotenv
 
 
 def _as_bool(value):
@@ -15,13 +17,16 @@ class Settings:
     host: str
     port: int
     secret_key: str
-    database_uri: str
+    database_url: str
     cors_origins: object
-    auth_token_max_age: int
+    token_max_age: int
+    log_level: str
 
     @classmethod
     def from_env(cls, environ=None):
-        environ = os.environ if environ is None else environ
+        if environ is None:
+            load_dotenv()
+            environ = os.environ
         env = environ.get("APP_ENV", "development")
         production = env == "production"
 
@@ -29,11 +34,12 @@ class Settings:
         if not secret_key:
             if production:
                 raise RuntimeError("SECRET_KEY é obrigatória em produção")
+            # Efêmera: tokens emitidos deixam de valer a cada restart em desenvolvimento.
             secret_key = secrets.token_hex(32)
 
         origins = environ.get("CORS_ORIGINS")
         if origins:
-            cors_origins = [o.strip() for o in origins.split(",") if o.strip()]
+            cors_origins = [origin.strip() for origin in origins.split(",") if origin.strip()]
         else:
             cors_origins = [] if production else "*"
 
@@ -43,7 +49,8 @@ class Settings:
             host=environ.get("APP_HOST", "127.0.0.1"),
             port=int(environ.get("PORT", "5000")),
             secret_key=secret_key,
-            database_uri=environ.get("DATABASE_URI", "sqlite:///tasks.db"),
+            database_url=environ.get("DATABASE_URL", "sqlite:///tasks.db"),
             cors_origins=cors_origins,
-            auth_token_max_age=int(environ.get("AUTH_TOKEN_MAX_AGE", "86400")),
+            token_max_age=int(environ.get("TOKEN_MAX_AGE", "86400")),
+            log_level=environ.get("LOG_LEVEL", "INFO"),
         )

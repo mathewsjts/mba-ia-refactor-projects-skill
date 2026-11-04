@@ -1,124 +1,77 @@
-"""Agregações de relatórios, calculadas numa única varredura (T04, T08)."""
 from datetime import timedelta
 
-from clock import utcnow
-from constants import CLOSED_STATUSES
+from constants import DONE_STATUS, HIGH_PRIORITY_MAX, PRIORITY_LABELS, RECENT_ACTIVITY_DAYS, TASK_STATUSES
+from models.clock import utcnow
+from services.task_service import completion_rate
 
 
 class ReportService:
-    def __init__(self, task_repository, user_repository, category_repository):
+    def __init__(self, task_repository, user_repository, category_repository, user_service):
         self._tasks = task_repository
         self._users = user_repository
         self._categories = category_repository
+        self._user_service = user_service
 
     def summary(self):
         now = utcnow()
-        seven_days_ago = now - timedelta(days=7)
-        tasks = self._tasks.list_all()
-        users = self._users.list_all()
-
-        status_counts = {'pending': 0, 'in_progress': 0, 'done': 0, 'cancelled': 0}
-        priority_counts = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
-        overdue_list = []
-        recent_created = 0
-        recent_done = 0
-        tasks_by_user = {}
-
-        for task in tasks:
-            if task.status in status_counts:
-                status_counts[task.status] += 1
-            if task.priority in priority_counts:
-                priority_counts[task.priority] += 1
-            if task.is_overdue(now):
-                overdue_list.append({
-                    'id': task.id,
-                    'title': task.title,
-                    'due_date': str(task.due_date),
-                    'days_overdue': (now - task.due_date).days,
-                })
-            if task.created_at and task.created_at >= seven_days_ago:
-                recent_created += 1
-            if task.status == 'done' and task.updated_at and task.updated_at >= seven_days_ago:
-                recent_done += 1
-            tasks_by_user.setdefault(task.user_id, []).append(task)
-
-        user_stats = []
-        for user in users:
-            user_tasks = tasks_by_user.get(user.id, [])
-            total = len(user_tasks)
-            completed = sum(1 for t in user_tasks if t.status == 'done')
-            user_stats.append({
-                'user_id': user.id,
-                'user_name': user.name,
-                'total_tasks': total,
-                'completed_tasks': completed,
-                'completion_rate': round((completed / total) * 100, 2) if total > 0 else 0,
-            })
+        since = now - timedelta(days=RECENT_ACTIVITY_DAYS)
+        by_status = self._tasks.count_by_status()
+        by_priority = self._tasks.count_by_priority()
+        overdue = self._tasks.list_overdue(now)
 
         return {
-            'generated_at': str(now),
+            'generated_at': str(utcnow()),
             'overview': {
-                'total_tasks': len(tasks),
+                'total_tasks': self._tasks.count(),
                 'total_users': self._users.count(),
                 'total_categories': self._categories.count(),
             },
-            'tasks_by_status': {
-                'pending': status_counts['pending'],
-                'in_progress': status_counts['in_progress'],
-                'done': status_counts['done'],
-                'cancelled': status_counts['cancelled'],
-            },
-            'tasks_by_priority': {
-                'critical': priority_counts[1],
-                'high': priority_counts[2],
-                'medium': priority_counts[3],
-                'low': priority_counts[4],
-                'minimal': priority_counts[5],
-            },
+            'tasks_by_status': {status: by_status.get(status, 0) for status in TASK_STATUSES},
+            'tasks_by_priority': {label: by_priority.get(level, 0) for level, label in PRIORITY_LABELS.items()},
             'overdue': {
-                'count': len(overdue_list),
-                'tasks': overdue_list,
+                'count': len(overdue),
+                'tasks': [
+                    {
+                        'id': task.id,
+                        'title': task.title,
+                        'due_date': str(task.due_date),
+                        'days_overdue': (now - task.due_date).days,
+                    }
+                    for task in overdue
+                ],
             },
             'recent_activity': {
-                'tasks_created_last_7_days': recent_created,
-                'tasks_completed_last_7_days': recent_done,
+                'tasks_created_last_7_days': self._tasks.count_created_since(since),
+                'tasks_completed_last_7_days': self._tasks.count_done_since(since),
             },
-            'user_productivity': user_stats,
+            'user_productivity': [
+                {
+                    'user_id': user_id,
+                    'user_name': name,
+                    'total_tasks': total,
+                    'completed_tasks': completed,
+                    'completion_rate': completion_rate(completed, total),
+                }
+                for user_id, name, total, completed in self._users.productivity()
+            ],
         }
 
-    def user_report(self, user):
+    def user_report(self, user_id):
+        user, tasks = self._user_service.get_with_tasks(user_id)
         now = utcnow()
-        tasks = self._tasks.list_by_user(user.id)
-        total = len(tasks)
-        done = pending = in_progress = cancelled = overdue = high_priority = 0
+        counts = {status: 0 for status in TASK_STATUSES}
         for task in tasks:
-            if task.status == 'done':
-                done += 1
-            elif task.status == 'pending':
-                pending += 1
-            elif task.status == 'in_progress':
-                in_progress += 1
-            elif task.status == 'cancelled':
-                cancelled += 1
-            if task.priority <= 2:
-                high_priority += 1
-            if task.due_date and task.due_date < now and task.status not in CLOSED_STATUSES:
-                overdue += 1
+            if task.status in counts:
+                counts[task.status] += 1
+        total = len(tasks)
 
         return {
-            'user': {
-                'id': user.id,
-                'name': user.name,
-                'email': user.email,
-            },
+            'user': {'id': user.id, 'name': user.name, 'email': user.email},
             'statistics': {
                 'total_tasks': total,
-                'done': done,
-                'pending': pending,
-                'in_progress': in_progress,
-                'cancelled': cancelled,
-                'overdue': overdue,
-                'high_priority': high_priority,
-                'completion_rate': round((done / total) * 100, 2) if total > 0 else 0,
+                **counts,
+                'overdue': sum(1 for task in tasks if task.is_overdue(now)),
+                'high_priority': sum(1 for task in tasks if task.priority <= HIGH_PRIORITY_MAX),
+                'completion_rate': completion_rate(counts[DONE_STATUS], total),
             },
         }

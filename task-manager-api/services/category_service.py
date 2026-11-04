@@ -1,52 +1,26 @@
-"""Regras de negócio de categorias (T04)."""
-from database import db
-from errors import NotFoundError, ValidationError
+from constants import CATEGORY_NOT_FOUND_MESSAGE
+from errors import NotFoundError
 from models.category import Category
-from constants import DEFAULT_COLOR
 
 
 class CategoryService:
     def __init__(self, category_repository):
         self._categories = category_repository
 
-    def list_categories(self):
-        categories = self._categories.list_all()
-        counts = self._categories.task_counts()
-        return [(category, counts.get(category.id, 0)) for category in categories]
+    def list_categories(self, limit=None, offset=0):
+        return self._categories.list_with_task_count(limit, offset)
 
-    def get_category(self, category_id):
+    def get(self, category_id):
         category = self._categories.get(category_id)
-        if not category:
-            raise NotFoundError('Categoria não encontrada')
+        if category is None:
+            raise NotFoundError(CATEGORY_NOT_FOUND_MESSAGE)
         return category
 
-    def create_category(self, data):
-        if not data:
-            raise ValidationError('Dados inválidos')
-        name = data.get('name')
-        if not name:
-            raise ValidationError('Nome é obrigatório')
-        category = Category()
-        category.name = name
-        category.description = data.get('description', '')
-        category.color = data.get('color', DEFAULT_COLOR)
-        self._categories.add(category)
-        db.session.commit()
-        return category
+    def create(self, fields):
+        return self._categories.add(Category(**fields))
 
-    def update_category(self, category_id, data):
-        category = self.get_category(category_id)
-        data = data or {}
-        if 'name' in data:
-            category.name = data['name']
-        if 'description' in data:
-            category.description = data['description']
-        if 'color' in data:
-            category.color = data['color']
-        db.session.commit()
-        return category
+    def update(self, category, fields):
+        return self._categories.update(category, fields)
 
-    def delete_category(self, category_id):
-        category = self.get_category(category_id)
-        self._categories.delete(category)
-        db.session.commit()
+    def delete(self, category_id):
+        self._categories.delete(self.get(category_id))

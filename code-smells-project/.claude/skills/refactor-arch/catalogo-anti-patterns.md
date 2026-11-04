@@ -140,12 +140,14 @@ Um valor numérico garantido pelo conversor da rota (`<int:id>`) reduz a explora
 - Paths com `admin`, `reset`, `debug`, `query`, `exec`, `internal`, `financial` sem decorator ou middleware de autenticação (`@login_required`, `@jwt_required`, `authenticate`, verificação de `req.user`).
 - `DELETE FROM <tabela>` sem `WHERE` acessível por rota.
 - Token de autenticação falso ou não assinado: `'fake-jwt-token-' + id`, token igual ao id, ausência de verificação de token nas demais rotas.
+- Rota anônima de criação ou atualização que aceita `role`/`tipo`/`is_admin`, `password`/`senha` ou `active`/`ativo` vindos do corpo. Qualquer um se promove a admin ou troca a senha de outra conta.
+- Token aceito sem recarregar o usuário: conta apagada ou desativada continua autorizada.
 
 **Severidade:** CRITICAL para execução arbitrária, destruição em massa ou dados financeiros. HIGH quando a autenticação é falsa ou inexistente, mas o dano possível é limitado a leitura de dados não sensíveis.
 
 **Impacto:** qualquer cliente anônimo pode apagar o banco, exfiltrar tudo ou assumir contas.
 
-**Nota de contrato:** em CRITICAL ou HIGH, a Fase 3 aplica a T14 por completo, rota a rota, e cada mudança é declarada como Breaking Change. Rota que executa SQL ou código enviado pelo cliente, ou que destrói dados em massa, é **removida** — protegê-la com token mantém a capacidade de exfiltrar ou destruir o banco e não corrige o finding. As demais rotas privilegiadas ou destrutivas passam a exigir credencial. Assinar o token falso sem exigi-lo nas rotas deixa o impacto intacto e não corrige o finding.
+**Nota de contrato:** em CRITICAL ou HIGH, a Fase 3 aplica a T14 por completo, rota a rota, e cada mudança é declarada como Breaking Change. Rota que executa SQL ou código enviado pelo cliente, ou que destrói dados em massa, é **removida** — protegê-la com token mantém a capacidade de exfiltrar ou destruir o banco e não corrige o finding. As demais rotas privilegiadas ou destrutivas passam a exigir credencial, incluindo `POST`/`PUT` que gravam perfil, senha ou estado da conta. Assinar o token falso sem exigi-lo nas rotas deixa o impacto intacto e não corrige o finding.
 
 ---
 
@@ -215,6 +217,8 @@ Um valor numérico garantido pelo conversor da rota (`<int:id>`) reduz a explora
 - `commit()` chamado após cada passo em vez de uma vez ao final.
 - Callbacks aninhados em que cada nível grava algo e os erros dos níveis internos só respondem ao cliente, sem desfazer os anteriores.
 - Verificação seguida de escrita não atômica (ler estoque, depois decrementar em outra instrução) — inclusive quando a leitura está num arquivo (service) e a escrita em outro (model). Busca: `grep -rniE "SET[[:space:]]+[[:alnum:]_]+[[:space:]]*=[[:space:]]*[[:alnum:]_]+[[:space:]]*-"` e, em cada ocorrência, confira se o `WHERE` tem `AND <campo> >= ?` e se as linhas afetadas são checadas. Corrige-se com o **passo 3 da T07**, não só com a transação.
+- Unicidade checada por leitura antes do insert (`get_by_email`, `findByEmail`, `buscar_por_email` seguido de `INSERT`) sem `UNIQUE` no schema.
+- Escrita auxiliar do fluxo (criar usuário, registrar log de auditoria) fora do bloco transacional do fluxo principal, sobretudo numa conexão compartilhada.
 
 **Falsos positivos**
 - Decremento com `AND <campo> >= ?` no `WHERE` **e** checagem de linhas afetadas que levanta erro — já é atômico.

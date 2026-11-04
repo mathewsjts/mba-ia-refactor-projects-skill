@@ -1,4 +1,4 @@
-"""Hash de senha com KDF e salt (substitui MD5 — T05)."""
+"""Hash de senha com KDF e salt; hashes MD5 antigos são aceitos uma vez e regravados (T05)."""
 import hashlib
 import hmac
 import re
@@ -6,6 +6,7 @@ import re
 from werkzeug.security import check_password_hash, generate_password_hash
 
 _LEGACY_MD5 = re.compile(r"^[a-f0-9]{32}$")
+# pbkdf2 explícito: o scrypt padrão do Werkzeug 3 depende de hashlib.scrypt, ausente em builds com LibreSSL.
 METHOD = "pbkdf2:sha256:600000"
 
 

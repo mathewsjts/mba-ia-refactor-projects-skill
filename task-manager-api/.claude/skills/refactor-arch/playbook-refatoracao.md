@@ -718,11 +718,17 @@ def is_overdue(self, now=None):
 
 **Passos**
 1. Valide **tudo** antes da primeira escrita.
-2. Envolva as escritas relacionadas numa única transação com rollback em qualquer erro.
+2. Envolva as escritas relacionadas numa única transação com rollback em qualquer erro. "Relacionadas" inclui as escritas auxiliares do fluxo, como criar o usuário dentro do checkout.
+   - Com uma conexão compartilhada e uma fila de transações (Node `sqlite3`), **nenhuma** escrita roda fora da fila. Uma escrita solta cai no meio da transação de outra requisição e some no `ROLLBACK` dela, e o id já devolvido é reaproveitado pelo próximo `INSERT`.
+   - Efeitos externos irreversíveis, como cobrança e e-mail, vêm depois de todas as validações. Se uma escrita ainda puder falhar depois do efeito externo, registre no relatório o risco de cobrança sem registro.
 3. Troque "ler, verificar e depois escrever" por uma escrita condicional (`UPDATE ... SET estoque = estoque - ? WHERE id = ? AND estoque >= ?`) seguida da checagem de linhas afetadas (`rowcount`, `changes`, `affectedRows`). **Obrigatório** sempre que o finding citar checagem seguida de escrita, corrida ou saldo/estoque negativo — um servidor HTTP atende requisições em paralelo, então há concorrência por padrão.
    - A checagem prévia (passo 1) pode continuar no service, para responder "não encontrado" e a mensagem de erro original. Ela **não** garante nada: entre a leitura e a escrita outra requisição pode consumir o saldo. A garantia é a condição no `WHERE`, dentro da transação.
    - `with conn:` / `BEGIN ... COMMIT` **sozinho não** impede a corrida: a leitura da checagem prévia acontece fora da transação.
    - Linhas afetadas = 0 levanta o **mesmo erro de negócio** da checagem prévia (mesmo status, mesma mensagem, mesmas chaves). Assim o contrato não muda e a transação faz rollback das escritas anteriores.
+   - **Unicidade é a mesma corrida.** "Buscar por e-mail e, se não existir, inserir" deixa duas requisições paralelas inserirem o mesmo valor. Um hash de senha lento entre a busca e o insert alarga a janela.
+     - **Garantia:** restrição `UNIQUE` no banco. Em banco já criado, `CREATE UNIQUE INDEX IF NOT EXISTS` no boot.
+     - **Erro de violação:** vira o **mesmo erro** da checagem prévia (ex.: `409 "Email já cadastrado"`), nunca 500. Capture `IntegrityError` / `SQLITE_CONSTRAINT`.
+     - **Fluxo que reaproveita o registro existente** (ex.: checkout que usa o usuário já cadastrado): `INSERT ... ON CONFLICT DO NOTHING` e depois `SELECT` pelo valor único, tudo dentro da transação.
 
 **Conferência** (registre em `.refactor-arch/conformidade.md`, um passo por linha):
 
@@ -731,6 +737,7 @@ def is_overdue(self, now=None):
 | 1 | Laço de validação termina antes do primeiro `INSERT`/`UPDATE` |
 | 2 | Todas as escritas do fluxo dentro de um único bloco transacional com rollback |
 | 3 | Todo `SET x = x - ?` tem `AND x >= ?` no `WHERE` e checagem de linhas afetadas logo depois, levantando o erro de negócio |
+| 3 (unicidade) | Toda checagem "existe? senão insere" tem `UNIQUE` no banco e a violação convertida no erro da checagem |
 
 **Python (`sqlite3`) — antes**
 
@@ -978,7 +985,15 @@ module.exports = ReportModel;
 1. Extraia as regras duplicadas para um validador por entidade, com modo de criação e de atualização quando as regras diferirem.
 2. Mantenha **as mesmas mensagens** e **a mesma ordem** de verificação do original.
 3. O validador lança `ValidationError`; o middleware central devolve o status e o corpo de erro que o projeto já usa.
-4. Converta tipos com tratamento (`int("abc")` não pode virar 500).
+4. Converta tipos com tratamento: nenhuma entrada do cliente pode virar 500. Isso cobre:
+   - texto onde se espera número e vice-versa (`int("abc")`, `len(123)`);
+   - `null` em campo obrigatório;
+   - booleano onde se espera número (`True` é `int` em Python);
+   - corpo que é lista em vez de objeto;
+   - número não finito (`NaN`, `Infinity`, aceitos pelo `json` do Python), que se testa com `math.isfinite`;
+   - inteiro além do limite do banco (`99999999999999999999` estoura o SQLite).
+
+   Aplique o validador **também na atualização**. Validação copiada dentro do service na rota de `PUT` conta como passo 1 não aplicado.
 5. Use biblioteca de schema (marshmallow, pydantic, joi, zod) só se já estiver declarada — e só se as mensagens puderem ser preservadas.
 
 **Python — antes**
@@ -1413,6 +1428,7 @@ Aplica-se ao AP-05 em CRITICAL **e** em HIGH (regra 3 do `SKILL.md`). O finding 
 | Executa SQL ou código enviado pelo cliente | **Remover** da API. Nenhuma proteção torna isso aceitável. |
 | Destruição em massa (reset de banco) | **Remover** da API; se for útil em desenvolvimento, oferecer como comando de linha de comando. |
 | Leitura ou gestão administrativa (relatórios financeiros, remoção de usuários) sem login no projeto | **Proteger** com middleware de credencial administrativa lida da configuração (`X-Admin-Token`). |
+| Rota de criação ou atualização que aceita campo de perfil, credencial ou estado da conta (`role`, `tipo`, `is_admin`, `password`/`senha`, `active`/`ativo`) | **Proteger** o campo, mesmo que a rota não seja destrutiva: escrever esses campos é operação privilegiada. Cadastro público ignora o campo de perfil e grava o perfil padrão. Atualização exige token; só o próprio usuário altera a própria senha, e só um admin altera perfil, estado ou dados de outra conta. Deixar a rota aberta "para preservar o contrato" deixa o finding **não corrigido**: um anônimo se promove a admin ou toma a conta de outra pessoa. |
 | Token de autenticação falso (o projeto tem login) | Duas partes, ambas obrigatórias: (a) emitir token assinado com biblioteca já disponível (`itsdangerous` vem com o Flask; `crypto.createHmac` no Node), mantendo a mesma chave JSON na resposta de login; (b) **exigir** esse token (`Authorization: Bearer <token>`) nas rotas destrutivas — no mínimo todo `DELETE` — e nas administrativas. Cada rota protegida é um `BC-xx` declarado. Só (a) deixa o finding **parcial**, o que é proibido para finding de segurança. |
 
 Classifique **cada rota** do finding numa linha da tabela e aplique a ação daquela linha; um mesmo finding pode ter rotas removidas e rotas protegidas. A coluna "Ação" é obrigatória: "Remover" nunca é trocado por "Proteger" — uma rota de SQL arbitrário atrás de `X-Admin-Token` continua capaz de exfiltrar ou destruir o banco com uma credencial vazada, e o finding fica **não corrigido**. Remover significa apagar a rota, o método do controller e o método do model/service que executa a entrada do cliente; nenhum código que execute SQL recebido permanece no projeto.
@@ -1507,7 +1523,7 @@ from functools import wraps
 from flask import g, jsonify, request
 
 
-def require_auth(auth_service):
+def require_auth(auth_service, user_repository):
     def decorator(view):
         @wraps(view)
         def wrapper(*args, **kwargs):
@@ -1515,16 +1531,21 @@ def require_auth(auth_service):
             payload = auth_service.verify_token(token) if scheme == "Bearer" and token else None
             if payload is None:
                 return jsonify({"error": "Não autorizado"}), 401
-            g.user_id = payload["user_id"]
+            user = user_repository.get_by_id(payload["user_id"])  # estado atual, não o do login
+            if user is None or not user.active:
+                return jsonify({"error": "Não autorizado"}), 401
+            g.user = user
             return view(*args, **kwargs)
         return wrapper
     return decorator
 ```
 
+O token prova só quem fez login, e quando. A cada requisição, carregue o usuário do banco: conta apagada ou desativada perde o acesso na hora, e o perfil (`admin`) vem do banco, nunca do token nem do corpo da requisição. Use `g.user` para conferir dono e perfil. Gravar o id e nunca lê-lo é proteção só de fachada.
+
 ```python
 # routes/task_routes.py
 bp.add_url_rule(
-    "/tasks/<int:task_id>", "delete_task", require_auth(auth_service)(controller.delete), methods=["DELETE"]
+    "/tasks/<int:task_id>", "delete_task", require_auth(auth_service, user_repository)(controller.delete), methods=["DELETE"]
 )
 ```
 
@@ -1553,6 +1574,7 @@ module.exports = (config) => (req, res, next) => {
 - Com token de login, `smoke.sh` faz o `POST /login`, guarda o `token` da resposta e o envia como `Authorization: Bearer` nas rotas protegidas; o original ignora o header. Inclua uma chamada anônima a cada rota protegida com id inexistente: 404 no baseline, 401 depois — é a divergência declarada que prova a proteção.
 - Token de login sem `max_age` vale para sempre; não use a mesma `SECRET_KEY` aleatória por processo se houver mais de um worker (tokens emitidos num não validam no outro) — leia-a da configuração (T02).
 - Rota removida responde o 404 padrão do framework, com ou sem credencial; não crie handler especial para ela. No `smoke.sh` ela continua com uma chamada só de leitura (protocolo, A5): 200 no baseline, 404 depois — é a divergência declarada que prova a remoção.
+- **Primeiro admin em produção.** Se a T14 passou a exigir perfil admin e o seed de usuários de exemplo é desligado em produção (T02), ofereça um caminho documentado para criar o primeiro admin. Por exemplo, um comando de linha (`flask --app app create-admin`) ou variáveis `ADMIN_EMAIL`/`ADMIN_PASSWORD` lidas no boot, que criam a conta só se ela não existir. Sem isso, as rotas de admin ficam inacessíveis em produção e o finding troca uma falha de segurança por uma de operação.
 - Se, depois da remoção, nenhuma rota usa `ADMIN_TOKEN`, retire a variável da configuração, do `.env.example` e do README — credencial órfã sugere uma proteção que não existe.
 
 ---
