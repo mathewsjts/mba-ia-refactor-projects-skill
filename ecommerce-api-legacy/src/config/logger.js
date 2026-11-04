@@ -1,10 +1,20 @@
-// Ponto único de logging (T16), fácil de trocar por pino/winston depois.
-// Nunca registrar senha, token, cartão ou segredo (AP-03).
-const logger = {
-    info: (message, meta = {}) =>
-        console.info(JSON.stringify({ level: 'info', message, ...meta })),
-    error: (message, meta = {}) =>
-        console.error(JSON.stringify({ level: 'error', message, ...meta })),
-};
+// Ponto único de log, fácil de trocar por pino/winston.
+const LEVELS = Object.freeze({ error: 0, warn: 1, info: 2, debug: 3 });
 
-module.exports = logger;
+function createLogger(level = 'info') {
+  const threshold = LEVELS[level] ?? LEVELS.info;
+
+  const write = (name, output) => (message, meta = {}) => {
+    if (LEVELS[name] > threshold) return;
+    output(JSON.stringify({ level: name, message, ...meta }));
+  };
+
+  return Object.freeze({
+    error: write('error', console.error),
+    warn: write('warn', console.warn),
+    info: write('info', console.info),
+    debug: write('debug', console.debug),
+  });
+}
+
+module.exports = createLogger;

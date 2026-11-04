@@ -1,21 +1,27 @@
-// Erros de domínio (módulo neutro, importado por services, controllers e middlewares).
 class AppError extends Error {
-    constructor(message, statusCode = 500) {
-        super(message);
-        this.statusCode = statusCode;
-    }
-}
-
-class NotFoundError extends AppError {
-    constructor(message) {
-        super(message, 404);
-    }
+  constructor(message, statusCode = 500) {
+    super(message);
+    this.name = this.constructor.name;
+    this.statusCode = statusCode;
+  }
 }
 
 class ValidationError extends AppError {
-    constructor(message) {
-        super(message, 400);
-    }
+  constructor(message = 'Bad Request') {
+    super(message, 400);
+  }
 }
 
-module.exports = { AppError, NotFoundError, ValidationError };
+class NotFoundError extends AppError {
+  constructor(message) {
+    super(message, 404);
+  }
+}
+
+class PaymentDeclinedError extends AppError {
+  constructor(message = 'Pagamento recusado') {
+    super(message, 400);
+  }
+}
+
+module.exports = { AppError, ValidationError, NotFoundError, PaymentDeclinedError };

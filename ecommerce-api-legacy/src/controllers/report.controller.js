@@ -1,13 +1,15 @@
-// Controller do relatório financeiro (T04).
-class ReportController {
-    constructor(reportService) {
-        this.reportService = reportService;
-    }
+const { parsePagination } = require('./validators');
+const { serializeFinancialReport } = require('../views/serializers');
 
-    financialReport = async (req, res) => {
-        const report = await this.reportService.financialReport();
-        res.status(200).json(report);
-    };
+class ReportController {
+  constructor(reportService) {
+    this.reportService = reportService;
+  }
+
+  financialReport = async (req, res) => {
+    const report = await this.reportService.financialReport(parsePagination(req.query));
+    res.status(200).json(serializeFinancialReport(report));
+  };
 }
 
 module.exports = ReportController;

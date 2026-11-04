@@ -1,12 +1,14 @@
-// Acesso a dados de cursos (queries parametrizadas — T01).
 class CourseModel {
-    constructor(db) {
-        this.db = db;
-    }
+  constructor(database) {
+    this.database = database;
+  }
 
-    findActiveById(id) {
-        return this.db.get('SELECT * FROM courses WHERE id = ? AND active = 1', [id]);
-    }
+  findActiveById(courseId) {
+    return this.database.get(
+      'SELECT id, title, price FROM courses WHERE id = ? AND active = 1',
+      [courseId],
+    );
+  }
 }
 
 module.exports = CourseModel;

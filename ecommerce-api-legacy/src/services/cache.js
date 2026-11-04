@@ -1,17 +1,25 @@
-// Cache em memória encapsulado e injetado (T11), substituindo o `globalCache`
-// global mutável do utils.js original (F-07).
-class InMemoryCache {
-    constructor() {
-        this.entries = new Map();
-    }
+const DEFAULT_MAX_ENTRIES = 1000;
 
-    set(key, value) {
-        this.entries.set(key, value);
-    }
+// Cache por instância, criado no composition root; descarta a entrada mais antiga no limite.
+class BoundedCache {
+  constructor({ maxEntries = DEFAULT_MAX_ENTRIES, logger } = {}) {
+    this.maxEntries = maxEntries;
+    this.logger = logger;
+    this.entries = new Map();
+  }
 
-    get(key) {
-        return this.entries.get(key);
+  set(key, value) {
+    this.entries.delete(key);
+    this.entries.set(key, value);
+    if (this.entries.size > this.maxEntries) {
+      this.entries.delete(this.entries.keys().next().value);
     }
+    this.logger?.debug('Salvando no cache', { key });
+  }
+
+  get(key) {
+    return this.entries.get(key);
+  }
 }
 
-module.exports = InMemoryCache;
+module.exports = BoundedCache;

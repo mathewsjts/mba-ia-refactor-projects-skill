@@ -1,51 +1,59 @@
-const crypto = require('node:crypto');
-const { NotFoundError, ValidationError } = require('../errors');
-const { hashPassword } = require('../models/passwords');
+const { NotFoundError, PaymentDeclinedError } = require('../errors');
+const { PAYMENT_STATUS } = require('../models/payment.model');
 
-const PAYMENT_STATUS_PAID = 'PAID';
-
-// Regra de negócio do checkout (T04): orquestra models, gateway e cache,
-// sem conhecer requisição nem resposta HTTP.
 class CheckoutService {
-    constructor({ courseModel, userModel, enrollmentModel, paymentGateway, cache }) {
-        this.courseModel = courseModel;
-        this.userModel = userModel;
-        this.enrollmentModel = enrollmentModel;
-        this.paymentGateway = paymentGateway;
-        this.cache = cache;
-    }
+  constructor({
+    database,
+    courseModel,
+    userModel,
+    enrollmentModel,
+    paymentModel,
+    auditModel,
+    paymentGateway,
+    cache,
+    hashPassword,
+  }) {
+    this.database = database;
+    this.courseModel = courseModel;
+    this.userModel = userModel;
+    this.enrollmentModel = enrollmentModel;
+    this.paymentModel = paymentModel;
+    this.auditModel = auditModel;
+    this.paymentGateway = paymentGateway;
+    this.cache = cache;
+    this.hashPassword = hashPassword;
+  }
 
-    async checkout({ name, email, password, courseId, card }) {
-        // Ordem de verificação preservada: curso inexistente (404) antes de pagamento (400).
-        const course = await this.courseModel.findActiveById(courseId);
-        if (!course) throw new NotFoundError('Curso não encontrado');
+  async checkout({ name, email, password, courseId, card }) {
+    // Tudo o que pode recusar o checkout acontece antes da primeira escrita.
+    const course = await this.courseModel.findActiveById(courseId);
+    if (!course) throw new NotFoundError('Curso não encontrado');
 
-        const approved = await this.paymentGateway.charge({ card, amount: course.price });
-        if (!approved) throw new ValidationError('Pagamento recusado');
+    // Sem senha, a conta nasce sem credencial — nunca com uma senha padrão.
+    const passwordHash = password ? await this.hashPassword(password) : null;
 
-        const userId = await this.resolveUserId({ name, email, password });
+    const status = await this.paymentGateway.charge({ card, amount: course.price });
+    if (status !== PAYMENT_STATUS.PAID) throw new PaymentDeclinedError();
 
-        const enrollmentId = await this.enrollmentModel.createCheckout({
-            userId,
-            courseId,
-            amount: course.price,
-            status: PAYMENT_STATUS_PAID,
-            auditAction: `Checkout curso ${courseId} por ${userId}`,
-        });
+    // Usuário, matrícula, pagamento e auditoria: todos gravados ou nenhum.
+    const { userId, enrollmentId } = await this.database.transaction(async (tx) => {
+      const newUserId = await this.userModel.findOrCreate(tx, { name, email, passwordHash });
+      const newEnrollmentId = await this.enrollmentModel.create(tx, {
+        userId: newUserId,
+        courseId: course.id,
+      });
+      await this.paymentModel.create(tx, {
+        enrollmentId: newEnrollmentId,
+        amount: course.price,
+        status,
+      });
+      await this.auditModel.log(tx, `Checkout curso ${course.id} por ${newUserId}`);
+      return { userId: newUserId, enrollmentId: newEnrollmentId };
+    });
 
-        this.cache.set(`last_checkout_${userId}`, course.title);
-        return enrollmentId;
-    }
-
-    async resolveUserId({ name, email, password }) {
-        const existing = await this.userModel.findByEmail(email);
-        if (existing) return existing.id;
-
-        // Sem senha, gera uma aleatória forte em vez do default previsível "123456" (F-03).
-        const plain = password || crypto.randomBytes(16).toString('hex');
-        const passHash = await hashPassword(plain);
-        return this.userModel.create({ name, email, passHash });
-    }
+    this.cache.set(`last_checkout_${userId}`, course.title);
+    return { enrollmentId };
+  }
 }
 
 module.exports = CheckoutService;

@@ -1,16 +1,30 @@
-const { buildFinancialReport } = require('../views/serializers');
+const { PAYMENT_STATUS } = require('../models/payment.model');
 
-// Regra do relatório financeiro (T04): agrega as linhas do JOIN em memória,
-// reproduzindo a estrutura de resposta do original.
+const UNKNOWN_STUDENT = 'Unknown';
+
 class ReportService {
-    constructor({ reportModel }) {
-        this.reportModel = reportModel;
+  constructor({ reportModel }) {
+    this.reportModel = reportModel;
+  }
+
+  // Receita por curso soma só pagamentos aprovados; cada matrícula aparece como aluno.
+  async financialReport(pagination) {
+    const rows = await this.reportModel.financialRows(pagination);
+    const report = new Map();
+
+    for (const row of rows) {
+      if (!report.has(row.course_id)) {
+        report.set(row.course_id, { course: row.title, revenue: 0, students: [] });
+      }
+      if (row.enrollment_id === null) continue;
+
+      const entry = report.get(row.course_id);
+      if (row.status === PAYMENT_STATUS.PAID) entry.revenue += row.amount;
+      entry.students.push({ student: row.student ?? UNKNOWN_STUDENT, paid: row.amount ?? 0 });
     }
 
-    async financialReport() {
-        const rows = await this.reportModel.financialRows();
-        return buildFinancialReport(rows);
-    }
+    return [...report.values()];
+  }
 }
 
 module.exports = ReportService;

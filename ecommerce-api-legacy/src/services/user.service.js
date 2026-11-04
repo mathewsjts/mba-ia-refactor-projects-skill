@@ -1,12 +1,13 @@
-// Regra de remoção de usuário (T04). Delega a remoção transacional ao model.
 class UserService {
-    constructor({ userModel }) {
-        this.userModel = userModel;
-    }
+  constructor({ database, userModel }) {
+    this.database = database;
+    this.userModel = userModel;
+  }
 
-    async delete(id) {
-        return this.userModel.deleteById(id);
-    }
+  // Pagamentos, matrículas e o usuário saem juntos; uma falha não responde sucesso.
+  deleteUser(userId) {
+    return this.database.transaction((tx) => this.userModel.deleteById(tx, userId));
+  }
 }
 
 module.exports = UserService;

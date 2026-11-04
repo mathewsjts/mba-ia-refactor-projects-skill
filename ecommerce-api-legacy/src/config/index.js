@@ -1,25 +1,41 @@
-// Configuração lida do ambiente uma única vez (T02).
-// Nenhum segredo literal: valores vêm de variáveis de ambiente.
-const nodeEnv = process.env.NODE_ENV || 'development';
-const isProduction = nodeEnv === 'production';
+const crypto = require('node:crypto');
 
-function secret(name) {
-    const value = process.env[name];
-    if (!value && isProduction) {
-        throw new Error(`Variável de ambiente obrigatória ausente em produção: ${name}`);
-    }
-    return value || '';
+const DEFAULT_PORT = 3000;
+
+function parsePort(value) {
+  const port = Number(value);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    throw new Error(`PORT inválida: ${value}`);
+  }
+  return port;
 }
 
-module.exports = Object.freeze({
-    nodeEnv,
-    isProduction,
-    // Mesmo default do original (3000) para preservar o comando documentado.
-    port: Number(process.env.PORT || 3000),
-    // SQLite em memória como no original; configurável para outros ambientes.
-    databaseFile: process.env.DATABASE_FILE || ':memory:',
-    // Token exigido pelas rotas administrativas/destrutivas (T14).
-    adminToken: secret('ADMIN_TOKEN'),
-    // Chave do gateway de pagamento — antes hardcoded em utils.js (F-01).
-    paymentGatewayKey: secret('PAYMENT_GATEWAY_KEY'),
-});
+// Lê o ambiente uma única vez; chamada só pelo composition root.
+function loadConfig(environ = process.env) {
+  const env = environ.NODE_ENV || 'development';
+  const production = env === 'production';
+
+  function required(name) {
+    const value = environ[name];
+    if (!value && production) {
+      throw new Error(`Variável de ambiente obrigatória ausente: ${name}`);
+    }
+    return value || '';
+  }
+
+  return Object.freeze({
+    env,
+    port: parsePort(environ.PORT || DEFAULT_PORT),
+    databaseFile: environ.DATABASE_FILE || ':memory:',
+    sqliteVerbose: environ.SQLITE_VERBOSE === 'true',
+    logLevel: environ.LOG_LEVEL || 'info',
+    // Sem ADMIN_TOKEN as rotas administrativas recusam toda requisição (falha fechada).
+    adminToken: required('ADMIN_TOKEN'),
+    // Fora de produção, uma chave efêmera por boot; nunca um literal.
+    paymentGatewayKey: required('PAYMENT_GATEWAY_KEY') || crypto.randomBytes(16).toString('hex'),
+    // Senha do usuário de exemplo do seed; ausente, ele é criado sem credencial.
+    seedUserPassword: environ.SEED_USER_PASSWORD || '',
+  });
+}
+
+module.exports = loadConfig;

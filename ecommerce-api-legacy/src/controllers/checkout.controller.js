@@ -1,16 +1,16 @@
 const { parseCheckout } = require('./validators');
+const { serializeCheckout } = require('../views/serializers');
 
-// Controller fino (T04): extrai e valida a entrada, chama o service e monta a resposta.
 class CheckoutController {
-    constructor(checkoutService) {
-        this.checkoutService = checkoutService;
-    }
+  constructor(checkoutService) {
+    this.checkoutService = checkoutService;
+  }
 
-    checkout = async (req, res) => {
-        const input = parseCheckout(req.body);
-        const enrollmentId = await this.checkoutService.checkout(input);
-        res.status(200).json({ msg: 'Sucesso', enrollment_id: enrollmentId });
-    };
+  checkout = async (req, res) => {
+    const input = parseCheckout(req.body);
+    const { enrollmentId } = await this.checkoutService.checkout(input);
+    res.status(200).json(serializeCheckout(enrollmentId));
+  };
 }
 
 module.exports = CheckoutController;
