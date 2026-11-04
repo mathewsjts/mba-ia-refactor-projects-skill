@@ -94,12 +94,20 @@ Objetivo: reestruturar para MVC, eliminar os findings e provar que a aplicação
    6. **middlewares** — tratamento centralizado de erros (T10)
    7. **composition root** — montagem das dependências e entry point (T11)
    8. **limpeza** — código morto, imports, logging, constantes (T16); remova os arquivos antigos que ficaram vazios
-4. Todo finding do relatório termina em um de três estados: **corrigido**, **parcial** (dizendo o que falta) ou **não corrigido** (dizendo o motivo, ex.: exigiria quebra de contrato não autorizada). Nenhum finding é omitido. Finding de segurança CRITICAL ou HIGH nunca termina parcial ou não corrigido por motivo de contrato — a quebra necessária é declarada e aplicada (regra 3).
-5. Prefira bibliotecas já declaradas no manifesto e a biblioteca padrão. Se adicionar uma dependência, atualize o manifesto e instale-a.
-6. Leia de novo `protocolo-validacao.md` e execute a **Parte B — Validação**: mesmo estado inicial do baseline, boot pelo comando documentado, replay de `smoke.sh`, `diff` contra `baseline.txt` e varredura de anti-patterns remanescentes.
-7. Toda divergência que **não** esteja em `Breaking Changes propostos` é regressão: corrija e valide de novo. Limite de 5 ciclos; se não convergir, pare e reporte exatamente o que diverge.
-8. Grave `.refactor-arch/validacao.md` com as evidências e derrube a aplicação.
-9. Imprima:
+4. **Aplique a transformação inteira.** Para cada finding, abra a(s) transformação(ões) da recomendação (`Playbook Txx`) e execute **todos** os passos numerados — não só o que a camada da etapa sugere. Mover o código para a camada certa (princípio 1 do playbook) não aplica transformação nenhuma: depois de mover, volte à linha e aplique os passos. Um passo só fica de fora se for comprovadamente inaplicável ao código, com o motivo. Registre em `.refactor-arch/conformidade.md`, uma linha por passo:
+
+   ```
+   | Finding | Transformação | Passo | Evidência |
+   | F-xx | T07 | 3 — escrita condicional + linhas afetadas | <arquivo>:<linhas> |
+   | F-xx | Txx | <n> — <passo> | N/A: <motivo> |
+   ```
+5. **Comentário não substitui código.** Docstring ou comentário que cita uma transformação (`T07`) ou promete uma garantia ("condicional", "atômico", "em transação", "protegido", "validado") precisa apontar para código que a cumpre. Se o código não cumpre, aplique o passo que falta — não ajuste o comentário para esconder a falta.
+6. Todo finding do relatório termina em um de três estados: **corrigido** (todos os passos da transformação aplicados ou justificados como N/A em `conformidade.md`), **parcial** (dizendo qual passo falta) ou **não corrigido** (dizendo o motivo, ex.: exigiria quebra de contrato não autorizada). Nenhum finding é omitido. Finding de segurança CRITICAL ou HIGH nunca termina parcial ou não corrigido por motivo de contrato — a quebra necessária é declarada e aplicada (regra 3). Finding HIGH ou CRITICAL com passo faltando não é entregue parcial: aplique o passo.
+7. Prefira bibliotecas já declaradas no manifesto e a biblioteca padrão. Se adicionar uma dependência, atualize o manifesto e instale-a.
+8. Leia de novo `protocolo-validacao.md` e execute a **Parte B — Validação**: mesmo estado inicial do baseline, boot pelo comando documentado, replay de `smoke.sh`, `diff` contra `baseline.txt`, varredura de anti-patterns remanescentes, conferência passo a passo de `conformidade.md` contra o código e, se houver escrita condicional da T07, a prova de concorrência.
+9. Toda divergência que **não** esteja em `Breaking Changes propostos` é regressão, e todo passo de `conformidade.md` sem código correspondente também: corrija e valide de novo. Limite de 5 ciclos; se não convergir, pare e reporte exatamente o que diverge.
+10. Grave `.refactor-arch/validacao.md` com as evidências e derrube a aplicação.
+11. Imprima:
 
 ```
 ================================
@@ -119,6 +127,8 @@ CRITICAL: <corrigidos>/<total> | HIGH: <c>/<t> | MEDIUM: <c>/<t> | LOW: <c>/<t>
   ✓ Aplicação inicia sem erros (<comando usado>)
   ✓ Endpoints originais respondem: <iguais>/<total> idênticos ao baseline, <K> divergências declaradas
   ✓ Nenhum anti-pattern CRITICAL ou HIGH remanescente
+  ✓ Passos do playbook conferidos: <X>/<Y> findings com a transformação completa (.refactor-arch/conformidade.md)
+  ✓ Prova de concorrência: <invariante conferido> | N/A: <motivo>
 Evidências: .refactor-arch/validacao.md
 ================================
 ```

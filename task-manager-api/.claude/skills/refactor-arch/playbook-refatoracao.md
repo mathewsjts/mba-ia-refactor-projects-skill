@@ -719,7 +719,18 @@ def is_overdue(self, now=None):
 **Passos**
 1. Valide **tudo** antes da primeira escrita.
 2. Envolva as escritas relacionadas numa única transação com rollback em qualquer erro.
-3. Troque "ler, verificar e depois escrever" por uma escrita condicional quando houver concorrência (`UPDATE ... WHERE estoque >= ?` + checagem de linhas afetadas).
+3. Troque "ler, verificar e depois escrever" por uma escrita condicional (`UPDATE ... SET estoque = estoque - ? WHERE id = ? AND estoque >= ?`) seguida da checagem de linhas afetadas (`rowcount`, `changes`, `affectedRows`). **Obrigatório** sempre que o finding citar checagem seguida de escrita, corrida ou saldo/estoque negativo — um servidor HTTP atende requisições em paralelo, então há concorrência por padrão.
+   - A checagem prévia (passo 1) pode continuar no service, para responder "não encontrado" e a mensagem de erro original. Ela **não** garante nada: entre a leitura e a escrita outra requisição pode consumir o saldo. A garantia é a condição no `WHERE`, dentro da transação.
+   - `with conn:` / `BEGIN ... COMMIT` **sozinho não** impede a corrida: a leitura da checagem prévia acontece fora da transação.
+   - Linhas afetadas = 0 levanta o **mesmo erro de negócio** da checagem prévia (mesmo status, mesma mensagem, mesmas chaves). Assim o contrato não muda e a transação faz rollback das escritas anteriores.
+
+**Conferência** (registre em `.refactor-arch/conformidade.md`, um passo por linha):
+
+| Passo | Evidência esperada no código novo |
+|---|---|
+| 1 | Laço de validação termina antes do primeiro `INSERT`/`UPDATE` |
+| 2 | Todas as escritas do fluxo dentro de um único bloco transacional com rollback |
+| 3 | Todo `SET x = x - ?` tem `AND x >= ?` no `WHERE` e checagem de linhas afetadas logo depois, levantando o erro de negócio |
 
 **Python (`sqlite3`) — antes**
 
@@ -739,6 +750,8 @@ from src.errors import ValidationError
 
 
 def criar(self, usuario_id, itens, total):
+    # `itens` vem do service já validado (passo 1), com o nome do produto
+    # para repetir a mensagem de erro da checagem prévia.
     conn = self._database.connection()
     with conn:  # COMMIT ao sair do bloco; ROLLBACK se uma exceção escapar
         pedido_id = conn.execute(
@@ -755,9 +768,20 @@ def criar(self, usuario_id, itens, total):
                 "UPDATE produtos SET estoque = estoque - ? WHERE id = ? AND estoque >= ?",
                 (item["quantidade"], item["produto_id"], item["quantidade"]),
             ).rowcount
-            if atualizado == 0:
-                raise ValidationError(f"Estoque insuficiente para o produto {item['produto_id']}")
+            if atualizado == 0:  # outra requisição consumiu o estoque depois da checagem
+                # Mesmo erro da checagem prévia do service → contrato preservado.
+                raise ValidationError(f"Estoque insuficiente para {item['nome']}")
     return pedido_id
+```
+
+**JavaScript (`sqlite3` / `mysql2`) — escrita condicional**
+
+```js
+const { changes } = await db.run(
+  'UPDATE products SET stock = stock - ? WHERE id = ? AND stock >= ?',
+  [item.quantity, item.productId, item.quantity],
+); // mysql2: result.affectedRows
+if (changes === 0) throw new ValidationError(`Estoque insuficiente para ${item.name}`);
 ```
 
 **Python (Flask-SQLAlchemy)**

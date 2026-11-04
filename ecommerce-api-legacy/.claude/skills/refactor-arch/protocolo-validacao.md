@@ -31,6 +31,8 @@ Tudo fica em `.refactor-arch/`, na raiz do projeto:
 | `diff.txt` | `diff -u` entre os dois |
 | `db-backup/` | Bancos de arquivo movidos para garantir estado inicial limpo |
 | `relatorio-auditoria.md` | Relatório da Fase 2 |
+| `conformidade.md` | Mapa finding → transformação → passo → arquivo:linha (Fase 3) |
+| `concorrencia.sh` / `concorrencia.txt` | Prova de concorrência das escritas condicionais da T07 e seu resultado |
 | `validacao.md` | Evidências consolidadas da Fase 3 |
 
 ---
@@ -273,7 +275,45 @@ Exemplos típicos de regressão: 404 virou 500 porque o handler de `Exception` c
 1. Reaplique os sinais de detecção de **todos** os anti-patterns CRITICAL e HIGH do catálogo sobre o código novo.
 2. Rode os greps de proibições por camada (`guidelines-arquitetura.md`, seção 3).
 3. **Situações "Remover" da T14.** Confirme que nenhuma rota removida continua registrada (liste as rotas do app, ex.: `app.url_map` no Flask ou a tabela de rotas do Express) e que nenhum código executa entrada do cliente: `grep -rnE "execute\((sql|query|dados|data|body)\b|eval\(|exec\(|child_process" <fontes>`. Uma ocorrência — mesmo atrás de credencial — mantém o finding AP-05 **não corrigido**.
-4. Cada ocorrência é corrigida ou justificada como falso positivo em `validacao.md`.
+4. **Escrita não atômica (AP-09).** A leitura de saldo pode ter ido para o service e a escrita para o model — por isso a busca é pela escrita, não pelo par:
+   ```bash
+   grep -rniE "SET[[:space:]]+[[:alnum:]_]+[[:space:]]*=[[:space:]]*[[:alnum:]_]+[[:space:]]*-" <fontes>   # sem retrorreferência (o ugrep rejeita \1 com -E)
+   ```
+   Leia cada ocorrência: o `WHERE` tem `AND <campo> >= ?` e as linhas afetadas (`rowcount`, `changes`, `affectedRows`) são checadas logo depois, levantando o erro de negócio? Se não, o AP-09 está **não corrigido**, mesmo dentro de `with conn:` / `BEGIN ... COMMIT`.
+5. Cada ocorrência é corrigida ou justificada como falso positivo em `validacao.md`.
+
+### B6.1. Conformidade com o playbook
+
+A varredura acima procura sinais do problema; esta etapa confere se a **solução inteira** foi aplicada. Um finding só sai como corrigido se passar aqui.
+
+1. Para cada finding marcado corrigido, abra a transformação da recomendação no playbook e confira que `conformidade.md` tem **uma linha por passo numerado**. Passo ausente na tabela = passo não aplicado.
+2. Para cada linha, **leia o código** no `arquivo:linha` citado e confirme que ele faz o que o passo pede. Não aceite como evidência um nome de função, um comentário ou uma docstring.
+3. N/A só vale com motivo verificável no código (ex.: "não há leitura seguida de escrita neste fluxo").
+4. Confronte comentários com o código:
+   ```bash
+   grep -rnE "T[0-9]{2}\b|condicional|atômic|transa[cç]|protegid|validad" <fontes>
+   ```
+   Toda promessa feita num comentário ou docstring precisa estar no código logo abaixo. Comentário que promete o que o código não faz é uma falha de conformidade do finding correspondente.
+5. Qualquer falha aqui é tratada como **regressão**: aplique o passo que falta e volte a B2 (conta no limite de 5 ciclos).
+
+### B6.2. Prova de concorrência (T07, passo 3)
+
+O `smoke.sh` dispara uma requisição por vez, então não exercita corrida. Para cada fluxo em que a T07 aplicou escrita condicional, gere `.refactor-arch/concorrencia.sh`, separado do `smoke.sh` para não alterar o diff com o baseline:
+
+1. Parta do estado limpo (B2) e suba a aplicação.
+2. Escolha um recurso com saldo conhecido `S` (ex.: produto do seed com estoque `S`, ou crie um com estoque baixo, como `2`).
+3. Dispare `N > S` requisições **paralelas** que consomem 1 unidade cada:
+   ```bash
+   for i in $(seq 1 N); do
+     curl -s -o /dev/null -w '%{http_code}\n' -X POST "$BASE_URL/<rota>" \
+          -H 'Content-Type: application/json' --data '<corpo com quantidade 1>' &
+   done | sort | uniq -c
+   wait
+   ```
+4. Leia o recurso de novo e grave tudo em `.refactor-arch/concorrencia.txt`.
+5. **Invariante:** saldo final `≥ 0`, número de respostas de sucesso `≤ S` e saldo final `= S − sucessos`. As demais respostas são o mesmo erro de negócio do caminho sequencial (ex.: `400`), nunca `500`.
+
+Saldo negativo, sucessos acima de `S` ou `500` = AP-09 **não corrigido**: volte à T07 passo 3. Se nenhum fluxo usa escrita condicional, registre `N/A` com o motivo.
 
 ### B7. Encerrar e registrar
 
@@ -300,6 +340,19 @@ Requisições: <N> | Idênticas ao baseline: <X> | Divergências declaradas: <K>
 | Verificação | Comando | Resultado |
 |---|---|---|
 | AP-01 SQL concatenado | `grep …` | nenhuma ocorrência |
+
+## Conformidade com o playbook
+Findings corrigidos com todos os passos conferidos: <X>/<Y>
+
+| Finding | Transformação | Passos | Evidência conferida |
+|---|---|---|---|
+| F-xx | T07 | 1, 2, 3 | `<arquivo>:<linhas>` — `UPDATE ... AND estoque >= ?` + `rowcount == 0` → erro |
+
+Comentários confrontados com o código: <N> | Divergências: <nenhuma | lista>
+
+## Prova de concorrência
+Recurso: <id> com saldo inicial <S> | Requisições paralelas: <N>
+Respostas: <contagem por status> | Saldo final: <valor> | Invariante: ✓ | ✗ | N/A: <motivo>
 
 ## Estado deixado
 Porta <porta> livre. Bancos originais preservados em `.refactor-arch/db-backup/`.
