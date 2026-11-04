@@ -1,6 +1,10 @@
 class AuditModel {
-  async log(tx, action) {
-    await tx.run("INSERT INTO audit_logs (action, created_at) VALUES (?, datetime('now'))", [action]);
+  constructor(database) {
+    this.db = database.connection;
+  }
+
+  log(action) {
+    this.db.prepare("INSERT INTO audit_logs (action, created_at) VALUES (?, datetime('now'))").run(action);
   }
 }
 

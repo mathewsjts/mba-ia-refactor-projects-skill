@@ -1,14 +1,12 @@
-// Campos públicos explícitos; nada de senha, cartão ou e-mail nas respostas.
-const serializeCheckout = (enrollmentId) => ({ msg: 'Sucesso', enrollment_id: enrollmentId });
-
+// Campos públicos explícitos do relatório financeiro (nenhum e-mail, senha ou id interno).
 const serializeStudent = ({ student, paid }) => ({ student, paid });
 
-const serializeCourseRevenue = ({ course, revenue, students }) => ({
+const serializeCourseReport = ({ course, revenue, students }) => ({
   course,
   revenue,
   students: students.map(serializeStudent),
 });
 
-const serializeFinancialReport = (report) => report.map(serializeCourseRevenue);
+const serializeFinancialReport = (report) => report.map(serializeCourseReport);
 
-module.exports = { serializeCheckout, serializeFinancialReport };
+module.exports = { serializeFinancialReport };

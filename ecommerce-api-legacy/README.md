@@ -4,6 +4,8 @@ LMS API (com fluxo de checkout) em Node.js/Express usada como entrada do desafio
 
 ## Como rodar
 
+Requer Node.js 22 ou superior.
+
 ```bash
 npm install
 npm start
@@ -20,19 +22,39 @@ Variáveis de ambiente (nomes em `.env.example`):
 | Variável | Uso | Padrão |
 |---|---|---|
 | `PORT` | Porta HTTP | `3000` |
-| `ADMIN_TOKEN` | Valor exigido no header `X-Admin-Token` pelas rotas administrativas | vazio: as rotas administrativas respondem `401` |
-| `PAYMENT_GATEWAY_KEY` | Chave do gateway de pagamento | obrigatória com `NODE_ENV=production`; em desenvolvimento, chave efêmera |
-| `DATABASE_FILE` | Arquivo SQLite | `:memory:` |
-| `SEED_USER_PASSWORD` | Senha do usuário de exemplo do seed (gravada com hash) | vazio: usuário criado sem senha |
-| `SQLITE_VERBOSE` | Registra cada instrução SQL no log de nível `debug` (`true`) | desligado |
-| `LOG_LEVEL` | `error`, `warn`, `info` ou `debug` | `info` |
+| `DATABASE_FILE` | Arquivo SQLite; vazio usa banco em memória | `:memory:` |
+| `ADMIN_TOKEN` | Valor exigido no header `X-Admin-Token` das rotas administrativas | aleatório (rotas administrativas ficam fechadas) |
+| `PAYMENT_GATEWAY_KEY` | Chave do gateway de pagamento | aleatória em desenvolvimento |
+| `NODE_ENV` | Com `production`, `ADMIN_TOKEN` e `PAYMENT_GATEWAY_KEY` passam a ser obrigatórias | `development` |
 
-Exemplo:
+Exemplo: `ADMIN_TOKEN=troque-me npm start`.
 
-```bash
-ADMIN_TOKEN=troque-este-valor npm start
+## Rotas
+
+| Método | Path | Acesso |
+|---|---|---|
+| `POST` | `/api/checkout` | Público (checkout de visitante). E-mail novo exige `pwd`. |
+| `GET` | `/api/admin/financial-report` | Header `X-Admin-Token`. Aceita paginação opcional `?limit=&offset=` (por curso, `limit` máximo 100). |
+| `DELETE` | `/api/users/:id` | Header `X-Admin-Token`. Remove também as matrículas e pagamentos do usuário. |
+
+## Estrutura
+
+```
+src/
+├── app.js          composition root e entry point
+├── errors.js       erros de domínio
+├── config/         configuração (ambiente) e logger
+├── models/         acesso a dados, schema, seed e transações
+├── services/       regras de checkout e relatório, gateway, cache, hash de senha
+├── controllers/    entrada/saída HTTP e validação
+├── views/          rotas e serialização
+└── middlewares/    erros centralizados, autenticação administrativa
 ```
 
-## Rotas administrativas
+## Riscos conhecidos
 
-`GET /api/admin/financial-report` e `DELETE /api/users/:id` exigem o header `X-Admin-Token` com o valor de `ADMIN_TOKEN`. O relatório aceita paginação opcional por cursos com `?limit=&offset=`; sem esses parâmetros, retorna todos os cursos.
+- **Cobrança antes da gravação:** o gateway é chamado depois de todas as validações, mas antes da transação que grava a matrícula. Se a gravação falhar, a cobrança já ocorreu. Mitigação: pagamento `PENDING` antes de cobrar, ou estorno em caso de falha.
+- **Checkout com e-mail existente** matricula essa conta sem provar posse dela (não há login).
+- **Sem idempotência:** repetir o checkout gera nova matrícula e nova cobrança.
+- **`ADMIN_TOKEN` é uma credencial estática e compartilhada:** troque-a periodicamente.
+- **Estado em memória:** banco (padrão) e cache zeram a cada restart.

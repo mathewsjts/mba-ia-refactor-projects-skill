@@ -1,13 +1,10 @@
 class CourseModel {
   constructor(database) {
-    this.database = database;
+    this.db = database.connection;
   }
 
   findActiveById(courseId) {
-    return this.database.get(
-      'SELECT id, title, price FROM courses WHERE id = ? AND active = 1',
-      [courseId],
-    );
+    return this.db.prepare('SELECT id, title, price FROM courses WHERE id = ? AND active = 1').get(courseId);
   }
 }
 

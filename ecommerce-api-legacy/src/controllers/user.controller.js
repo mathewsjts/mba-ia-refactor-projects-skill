@@ -1,14 +1,14 @@
 const { parseUserId } = require('./validators');
 
 class UserController {
-  constructor(userService) {
+  constructor({ userService }) {
     this.userService = userService;
   }
 
-  // O original respondia 200 também para id inexistente; o contrato é mantido.
-  remove = async (req, res) => {
-    await this.userService.deleteUser(parseUserId(req.params.id));
-    res.status(200).send('Usuário deletado.');
+  // 200 também para id inexistente, como no original.
+  delete = async (req, res) => {
+    this.userService.delete(parseUserId(req.params));
+    res.send('Usuário deletado');
   };
 }
 

@@ -1,5 +1,5 @@
 @baseUrl = http://localhost:3000
-@adminToken = troque-este-valor
+@adminToken = troque-me
 
 ### Checkout - sucesso
 POST {{baseUrl}}/api/checkout

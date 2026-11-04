@@ -1,81 +1,78 @@
+const crypto = require('node:crypto');
 const express = require('express');
-const loadConfig = require('./config');
-const createLogger = require('./config/logger');
-const { Database, initSchema, seed } = require('./models/database');
-const AuditModel = require('./models/audit.model');
+
+const { loadConfig } = require('./config');
+const logger = require('./config/logger');
+const { openDatabase, initSchema, seedDatabase } = require('./models/database');
+const UserModel = require('./models/user.model');
 const CourseModel = require('./models/course.model');
 const EnrollmentModel = require('./models/enrollment.model');
 const { PaymentModel } = require('./models/payment.model');
+const AuditModel = require('./models/audit.model');
 const ReportModel = require('./models/report.model');
-const UserModel = require('./models/user.model');
-const BoundedCache = require('./services/cache');
-const CheckoutService = require('./services/checkout.service');
-const FakePaymentGateway = require('./services/payment.gateway');
 const { hashPassword } = require('./services/password');
+const FakePaymentGateway = require('./services/payment.gateway');
+const InMemoryCache = require('./services/cache');
+const CheckoutService = require('./services/checkout.service');
 const ReportService = require('./services/report.service');
 const UserService = require('./services/user.service');
 const CheckoutController = require('./controllers/checkout.controller');
 const ReportController = require('./controllers/report.controller');
 const UserController = require('./controllers/user.controller');
 const buildRoutes = require('./views/routes');
-const errorHandler = require('./middlewares/errorHandler');
-const requireAdmin = require('./middlewares/requireAdmin');
+const buildRequireAdmin = require('./middlewares/requireAdmin');
+const buildErrorHandler = require('./middlewares/errorHandler');
 
-// Único lugar que conhece as implementações concretas.
-function createApp({ config, database, logger }) {
-  const userModel = new UserModel();
+// Composition root: único lugar que conhece as implementações concretas.
+function createApp({ config, database }) {
+  const userModel = new UserModel(database);
+  const reportModel = new ReportModel(database);
 
   const checkoutService = new CheckoutService({
-    database,
-    courseModel: new CourseModel(database),
+    transaction: database.transaction,
     userModel,
-    enrollmentModel: new EnrollmentModel(),
-    paymentModel: new PaymentModel(),
-    auditModel: new AuditModel(),
+    courseModel: new CourseModel(database),
+    enrollmentModel: new EnrollmentModel(database),
+    paymentModel: new PaymentModel(database),
+    auditModel: new AuditModel(database),
     paymentGateway: new FakePaymentGateway({ apiKey: config.paymentGatewayKey, logger }),
-    cache: new BoundedCache({ logger }),
+    cache: new InMemoryCache({ logger }),
     hashPassword,
   });
-  const reportService = new ReportService({ reportModel: new ReportModel(database) });
-  const userService = new UserService({ database, userModel });
 
   const app = express();
   app.use(express.json());
   app.use(buildRoutes({
-    checkoutController: new CheckoutController(checkoutService),
-    reportController: new ReportController(reportService),
-    userController: new UserController(userService),
-    requireAdmin: requireAdmin(config.adminToken),
+    checkoutController: new CheckoutController({ checkoutService }),
+    reportController: new ReportController({ reportService: new ReportService({ reportModel }) }),
+    userController: new UserController({ userService: new UserService({ userModel }) }),
+    requireAdmin: buildRequireAdmin(config),
   }));
-  app.use(errorHandler(logger));
+  app.use(buildErrorHandler({ logger }));
   return app;
 }
 
-async function start() {
+async function main() {
   const config = loadConfig();
-  const logger = createLogger(config.logLevel);
-
-  const database = await Database.open(config.databaseFile, {
-    verbose: config.sqliteVerbose,
-    logger,
-  });
-  await initSchema(database);
-  await seed(database, { hashPassword, seedUserPassword: config.seedUserPassword });
-
-  if (!config.adminToken) {
-    logger.warn('ADMIN_TOKEN não definido: rotas administrativas responderão 401');
+  if (!config.adminTokenConfigured) {
+    logger.warn('ADMIN_TOKEN não definido: rotas administrativas recusarão todas as requisições');
   }
 
-  createApp({ config, database, logger }).listen(config.port, () => {
-    logger.info(`LMS API rodando na porta ${config.port}`);
+  const database = openDatabase(config.databaseFile);
+  initSchema(database);
+  // O usuário do seed nunca faz login; a senha dele é aleatória, gravada só como hash.
+  seedDatabase(database, { seedUserPasswordHash: await hashPassword(crypto.randomBytes(16).toString('hex')) });
+
+  createApp({ config, database }).listen(config.port, () => {
+    logger.info('LMS API iniciada', { port: config.port });
   });
 }
 
 if (require.main === module) {
-  start().catch((err) => {
-    console.error(err);
+  main().catch((err) => {
+    logger.error('Falha ao iniciar a aplicação', { error: err.message, stack: err.stack });
     process.exit(1);
   });
 }
 
-module.exports = { createApp, start };
+module.exports = { createApp };

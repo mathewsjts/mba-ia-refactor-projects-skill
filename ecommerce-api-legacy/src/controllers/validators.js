@@ -1,61 +1,44 @@
 const { ValidationError } = require('../errors');
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+$/;
-const DIGITS_PATTERN = /^\d+$/;
 const MAX_PAGE_SIZE = 100;
+const DIGITS = /^\d+$/;
 
-const isPlainObject = (value) =>
-  value !== null && typeof value === 'object' && !Array.isArray(value);
+const isText = (value) => typeof value === 'string';
+const isMissing = (value) => value === undefined || value === null;
 
-const isNonEmptyString = (value) => typeof value === 'string' && value.trim() !== '';
-
-// Inteiro não negativo seguro, vindo como número JSON ou texto de dígitos.
+// Id numérico positivo, em número ou texto; qualquer outro valor não identifica registro (null).
 function toId(value) {
-  if (typeof value === 'number') return Number.isSafeInteger(value) && value >= 0 ? value : null;
-  if (typeof value === 'string' && DIGITS_PATTERN.test(value)) {
-    const id = Number(value);
-    return Number.isSafeInteger(id) ? id : null;
-  }
-  return null;
+  const id = isText(value) && DIGITS.test(value) ? Number(value) : value;
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
-// Traduz as chaves públicas do contrato (usr, eml, pwd, c_id, card) para nomes internos.
+// Traduz as chaves públicas (contrato) para nomes internos num único lugar.
 function parseCheckout(body) {
-  if (!isPlainObject(body)) throw new ValidationError();
+  const input = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
+  const { usr, eml, pwd, c_id: courseId, card } = input;
 
-  const { usr: name, eml: email, pwd: password, c_id: rawCourseId, card } = body;
-  const courseId = toId(rawCourseId);
+  // Mesma regra e mesma mensagem do original: obrigatórios presentes...
+  if (!usr || !eml || !courseId || !card) throw new ValidationError('Bad Request');
+  // ...e com o tipo esperado (BC-04): texto onde o fluxo usa texto, id em número ou texto.
+  if (!isText(usr) || !isText(eml) || !isText(card)) throw new ValidationError('Bad Request');
+  if (!isMissing(pwd) && !isText(pwd)) throw new ValidationError('Bad Request');
+  if (typeof courseId !== 'number' && !isText(courseId)) throw new ValidationError('Bad Request');
 
-  // `pwd` é opcional, como no original: ausente, nulo ou vazio cria a conta sem senha.
-  const passwordValid = password === undefined || password === null || typeof password === 'string';
+  return { name: usr, email: eml, password: pwd || null, courseId: toId(courseId), card };
+}
 
-  if (
-    !isNonEmptyString(name)
-    || !isNonEmptyString(email)
-    || !EMAIL_PATTERN.test(email)
-    || !passwordValid
-    || !courseId
-    || !isNonEmptyString(card)
-  ) {
-    throw new ValidationError();
+function parseUserId(params) {
+  return toId(params.id);
+}
+
+// Paginação opcional: sem `limit`, devolve tudo, como o original.
+function parsePagination(query) {
+  const { limit, offset = '0' } = query;
+  if (limit === undefined) return {};
+  if (!isText(limit) || !DIGITS.test(limit) || !isText(offset) || !DIGITS.test(offset)) {
+    throw new ValidationError('Bad Request');
   }
-
-  return { name, email, password: password || null, courseId, card };
-}
-
-function parseUserId(rawId) {
-  const userId = toId(rawId);
-  if (userId === null) throw new ValidationError();
-  return userId;
-}
-
-// Paginação opcional: sem `limit`, o relatório vem inteiro, como antes.
-function parsePagination(query = {}) {
-  if (query.limit === undefined) return {};
-  const limit = toId(query.limit);
-  const offset = query.offset === undefined ? 0 : toId(query.offset);
-  if (!limit || offset === null) throw new ValidationError();
-  return { limit: Math.min(limit, MAX_PAGE_SIZE), offset };
+  return { limit: Math.min(Number(limit), MAX_PAGE_SIZE), offset: Math.min(Number(offset), Number.MAX_SAFE_INTEGER) };
 }
 
 module.exports = { parseCheckout, parseUserId, parsePagination };
