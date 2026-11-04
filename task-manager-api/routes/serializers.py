@@ -1,11 +1,7 @@
-"""Representação pública das entidades, com campos explícitos (T13).
-
-Cada função reproduz as chaves e os formatos que a rota original devolvia (`str(datetime)`, tags
-como lista). A senha não entra em nenhuma whitelist.
-"""
+"""Representação pública das entidades. Só os campos listados aqui saem nas respostas."""
 
 
-def _date(value):
+def _date_or_none(value):
     return str(value) if value else None
 
 
@@ -20,24 +16,25 @@ def serialize_task(task):
         'category_id': task.category_id,
         'created_at': str(task.created_at),
         'updated_at': str(task.updated_at),
-        'due_date': _date(task.due_date),
+        'due_date': _date_or_none(task.due_date),
         'tags': task.tags.split(',') if task.tags else [],
     }
 
 
 def serialize_task_detail(task):
-    return {**serialize_task(task), 'overdue': task.is_overdue()}
+    data = serialize_task(task)
+    data['overdue'] = task.is_overdue()
+    return data
 
 
-def serialize_task_listing(task):
-    return {
-        **serialize_task_detail(task),
-        'user_name': task.user.name if task.user else None,
-        'category_name': task.category.name if task.category else None,
-    }
+def serialize_task_with_relations(task):
+    data = serialize_task_detail(task)
+    data['user_name'] = task.user.name if task.user else None
+    data['category_name'] = task.category.name if task.category else None
+    return data
 
 
-def serialize_user_task(task):
+def serialize_task_summary(task):
     return {
         'id': task.id,
         'title': task.title,
@@ -45,7 +42,7 @@ def serialize_user_task(task):
         'status': task.status,
         'priority': task.priority,
         'created_at': str(task.created_at),
-        'due_date': _date(task.due_date),
+        'due_date': _date_or_none(task.due_date),
         'overdue': task.is_overdue(),
     }
 
@@ -61,12 +58,23 @@ def serialize_user(user):
     }
 
 
-def serialize_user_listing(user, task_count):
-    return {**serialize_user(user), 'task_count': task_count}
+def serialize_user_with_task_count(user, task_count):
+    data = serialize_user(user)
+    data['task_count'] = task_count
+    return data
 
 
 def serialize_user_detail(user, tasks):
-    return {**serialize_user(user), 'tasks': [serialize_task(task) for task in tasks]}
+    data = serialize_user(user)
+    data['tasks'] = [serialize_task(task) for task in tasks]
+    return data
+
+
+def serialize_user_report(user, statistics):
+    return {
+        'user': {'id': user.id, 'name': user.name, 'email': user.email},
+        'statistics': statistics,
+    }
 
 
 def serialize_category(category):
@@ -79,5 +87,20 @@ def serialize_category(category):
     }
 
 
-def serialize_category_listing(category, task_count):
-    return {**serialize_category(category), 'task_count': task_count}
+def serialize_category_with_task_count(category, task_count):
+    data = serialize_category(category)
+    data['task_count'] = task_count
+    return data
+
+
+def serialize_summary(report):
+    data = dict(report)
+    data['generated_at'] = str(report['generated_at'])
+    data['overdue'] = {
+        'count': len(report['overdue']),
+        'tasks': [
+            {'id': task.id, 'title': task.title, 'due_date': str(task.due_date), 'days_overdue': days}
+            for task, days in report['overdue']
+        ],
+    }
+    return data

@@ -1,27 +1,28 @@
-from flask import jsonify, request
+from flask import g, jsonify, request
 
 from controllers.validators import parse_pagination, validate_category_create, validate_category_update
-from routes.serializers import serialize_category, serialize_category_listing
+from routes.serializers import serialize_category, serialize_category_with_task_count
 
 
 class CategoryController:
     def __init__(self, category_service):
         self._service = category_service
 
-    def index(self):
+    def list(self):
         limit, offset = parse_pagination(request.args)
-        rows = self._service.list_categories(limit, offset)
-        return jsonify([serialize_category_listing(category, count) for category, count in rows]), 200
+        categories = self._service.list(limit, offset)
+        return jsonify([serialize_category_with_task_count(category, count) for category, count in categories]), 200
 
     def create(self):
-        fields = validate_category_create(request.get_json())
-        return jsonify(serialize_category(self._service.create(fields))), 201
+        self._service.authorize_write(g.user)              # 403 antes do 400
+        fields = validate_category_create(request.get_json(silent=True))
+        return jsonify(serialize_category(self._service.create(g.user, fields))), 201
 
-    def update(self, cat_id):
-        category = self._service.get(cat_id)
-        fields = validate_category_update(request.get_json())
+    def update(self, category_id):
+        category = self._service.get_writable(g.user, category_id)
+        fields = validate_category_update(request.get_json(silent=True))
         return jsonify(serialize_category(self._service.update(category, fields))), 200
 
-    def delete(self, cat_id):
-        self._service.delete(cat_id)
+    def delete(self, category_id):
+        self._service.delete(g.user, category_id)
         return jsonify({'message': 'Categoria deletada'}), 200

@@ -1,6 +1,6 @@
 # task-manager-api
 
-API de Task Manager em Python/Flask usada como entrada do desafio `refactor-arch`. Organizada em MVC com camada de serviços: `config/` (ambiente), `models/` (entidades e repositórios), `services/` (regras), `controllers/` (requisição → serviço → resposta), `routes/` (views: rotas e serializers) e `middlewares/` (autenticação e erros), montados em `app.py`.
+API de Task Manager em Python/Flask usada como entrada do desafio `refactor-arch`, refatorada para MVC com camada de services.
 
 ## Como rodar
 
@@ -10,38 +10,72 @@ python seed.py
 python app.py
 ```
 
-A aplicação sobe em `http://localhost:5000`. O `seed.py` popula o banco SQLite (`instance/tasks.db`) com usuários, categorias e tasks de exemplo. **Rode-o antes do primeiro boot**; sem ele, os endpoints devolvem listas vazias.
+A aplicação sobe em `http://localhost:5000`. O `seed.py` popula o banco SQLite (`instance/tasks.db`) com usuários, categorias e tasks de exemplo — **rode-o antes do primeiro boot**, caso contrário os endpoints vão retornar listas vazias.
+
+No macOS a porta 5000 costuma estar ocupada pelo AirPlay Receiver; use outra porta com `PORT=5055 python app.py`.
 
 ## Configuração
 
-Variáveis lidas do ambiente ou de um arquivo `.env` (veja `.env.example`):
+Lida do ambiente (ou de um arquivo `.env`; veja `.env.example`):
 
 | Variável | Padrão | Uso |
 |---|---|---|
-| `PORT` | `5000` | Porta do `python app.py` |
-| `APP_HOST` | `127.0.0.1` | Interface de rede; use `0.0.0.0` para aceitar conexões de outras máquinas |
-| `APP_DEBUG` | `false` | Debugger do Werkzeug; nunca ligue em produção |
-| `APP_ENV` | `development` | `production` exige `SECRET_KEY` e bloqueia CORS sem `CORS_ORIGINS` |
-| `SECRET_KEY` | aleatória por boot | Assina os tokens de login. Sem ela, os tokens deixam de valer a cada restart |
+| `APP_ENV` | `development` | em `production`, `SECRET_KEY` passa a ser obrigatória |
+| `SECRET_KEY` | aleatória por processo | assina os tokens de login. **Defina em qualquer deploy**: sem ela, os tokens deixam de valer a cada restart e não valem entre workers |
+| `FLASK_DEBUG` | `false` | nunca ligue fora da máquina local |
+| `HOST` / `PORT` | `127.0.0.1` / `5000` | endereço de escuta (antes era `0.0.0.0`) |
 | `DATABASE_URL` | `sqlite:///tasks.db` | URI do SQLAlchemy |
-| `CORS_ORIGINS` | `*` fora de produção | Origens permitidas, separadas por vírgula |
-| `TOKEN_MAX_AGE` | `86400` | Validade do token em segundos |
-| `LOG_LEVEL` | `INFO` | Nível do `logging` |
+| `CORS_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000` | origens liberadas para chamadas do navegador |
+| `TOKEN_MAX_AGE_SECONDS` | `86400` | validade do token de login |
 
-## Autenticação
+## Autenticação e permissões
 
-`POST /login` devolve `token`. Envie-o como `Authorization: Bearer <token>` em:
+`POST /login` devolve `token`; envie-o como `Authorization: Bearer <token>`.
 
-- `DELETE /tasks/<id>`, `DELETE /categories/<id>`, `DELETE /users/<id>`;
-- `PUT /users/<id>`: só o próprio usuário altera a própria conta. Perfil (`role`), estado (`active`) e contas de outras pessoas exigem admin;
-- `GET /users`, `GET /users/<id>`, `GET /reports/user/<id>`, que devolvem e-mails.
+| Rotas | Quem pode |
+|---|---|
+| `POST /login`, `POST /users` (cadastro) | público. No cadastro, `role` só é aceito quando quem chama é admin; senão, a conta nasce `user` |
+| `POST/PUT/DELETE /tasks…` | token; dono da task ou admin. Criar ou transferir task para outra conta: só admin |
+| `PUT /users/<id>` | token; a própria conta (nome, e-mail, senha) ou admin. `role` e `active`: só admin. Senha: só a própria conta |
+| `DELETE /users/<id>` | token; a própria conta ou admin |
+| `POST/PUT/DELETE /categories…` | token de admin |
+| `GET /users` | token de admin |
+| `GET /users/<id>`, `GET /reports/user/<id>` | token; a própria conta ou admin |
+| demais `GET` | público |
 
-`POST /users` continua público e grava o perfil `user`; o `role` enviado só vale quando quem chama é admin autenticado.
+Senhas novas precisam ter pelo menos 8 caracteres. As senhas antigas em MD5 são regravadas com PBKDF2 no primeiro login.
 
-Primeiro admin sem o seed (produção):
+Primeiro admin em um banco sem seed:
 
 ```bash
-flask --app app create-admin --name "Admin" --email admin@exemplo.com
+flask --app app create-admin
 ```
 
-A paginação é opcional em `GET /tasks`, `/tasks/search`, `/users` e `/categories`: use `?limit=<n>&offset=<n>`, com até 100 itens por página. Sem `limit`, a lista vem completa.
+## Paginação
+
+`GET /tasks`, `/tasks/search`, `/users` e `/categories` aceitam `?page=<n>&per_page=<n>` (máximo de 100 por página). Sem esses parâmetros, a lista continua completa.
+
+## Estrutura
+
+```
+app.py              composition root (create_app) e entry point
+config/             configuração lida do ambiente
+models/             entidades e repositórios (acesso a dados)
+services/           regras de negócio e autorização
+controllers/        fluxo requisição → service → resposta, validação de entrada
+routes/             views: mapeamento de rotas e serializers
+middlewares/        autenticação e tratamento central de erros
+errors.py           erros de domínio
+constants.py        constantes do domínio
+```
+
+## Riscos conhecidos
+
+- A `SECRET_KEY` e a senha SMTP antigas continuam no histórico git: troque-as.
+- Contas que nunca mais fizerem login continuam com hash MD5 até redefinirem a senha.
+- Nomes de usuários continuam públicos em `GET /tasks` e `GET /reports/summary`.
+- python-dotenv 1.2.1 tem a CVE-2026-28684 (em `set_key`/`unset_key`, que o projeto não usa); a correção exige Python ≥ 3.10.
+- O runtime Python 3.9 está sem suporte; migre para Python ≥ 3.11.
+- O token não é revogado ao trocar a senha (vale até expirar); conta apagada ou desativada perde o acesso na hora.
+- O login não limita tentativas.
+- Bancos criados antes da refatoração não ganham `ON DELETE` no DDL; a cascata do ORM cobre a API.

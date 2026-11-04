@@ -1,15 +1,11 @@
 from flask import Blueprint
 
-from middlewares.auth import require_auth
 
-
-def create_category_blueprint(controller, auth_service):
+def register_category_routes(app, controller, auth):
     bp = Blueprint('categories', __name__)
-    bp.add_url_rule('/categories', 'get_categories', controller.index, methods=['GET'])
-    bp.add_url_rule('/categories', 'create_category', controller.create, methods=['POST'])
-    bp.add_url_rule('/categories/<int:cat_id>', 'update_category', controller.update, methods=['PUT'])
-    bp.add_url_rule(
-        '/categories/<int:cat_id>', 'delete_category',
-        require_auth(auth_service)(controller.delete), methods=['DELETE'],
-    )
-    return bp
+    bp.add_url_rule('/categories', 'get_categories', controller.list, methods=['GET'])
+    # Recurso compartilhado: escrita exige token e perfil admin (conferido no service).
+    bp.add_url_rule('/categories', 'create_category', auth(controller.create), methods=['POST'])
+    bp.add_url_rule('/categories/<int:category_id>', 'update_category', auth(controller.update), methods=['PUT'])
+    bp.add_url_rule('/categories/<int:category_id>', 'delete_category', auth(controller.delete), methods=['DELETE'])
+    app.register_blueprint(bp)

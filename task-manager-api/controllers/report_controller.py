@@ -1,4 +1,6 @@
-from flask import jsonify
+from flask import g, jsonify
+
+from routes.serializers import serialize_summary, serialize_user_report
 
 
 class ReportController:
@@ -6,7 +8,8 @@ class ReportController:
         self._service = report_service
 
     def summary(self):
-        return jsonify(self._service.summary()), 200
+        return jsonify(serialize_summary(self._service.summary())), 200
 
     def user_report(self, user_id):
-        return jsonify(self._service.user_report(user_id)), 200
+        user, statistics = self._service.user_report(g.user, user_id)
+        return jsonify(serialize_user_report(user, statistics)), 200
