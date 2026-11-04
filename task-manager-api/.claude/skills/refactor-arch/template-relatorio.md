@@ -11,8 +11,10 @@ Referência da **Fase 2**. O relatório é gravado em `.refactor-arch/relatorio-
 5. **Contagens coerentes.** Os números do `Resumo` contam findings, não ocorrências. `Total` é a soma do resumo e bate com a quantidade de blocos `### F-`.
 6. **Descrição concreta.** Cite nomes de funções, rotas e trechos reais. Segredos aparecem redigidos: mostre só os primeiros caracteres (`'minha-chave-****'`, `pk_live_****`).
 7. **Recomendação acionável.** Diga o que fazer e aponte a transformação do playbook (`T01`…`T17`).
-8. **Contrato.** Todo finding declara se a correção preserva o contrato HTTP ou qual quebra (`BC-xx`) ela exige. Quebras só são aceitas para findings de segurança CRITICAL ou HIGH (regra 3 do `SKILL.md`) — e, nesses, a quebra necessária é proposta, não evitada: um AP-05 HIGH cuja correção exige proteger rotas declara um `BC-xx` por rota protegida. No AP-05, a recomendação segue a tabela de situações da T14 rota a rota: rota que executa SQL/código do cliente ou destrói dados em massa é **removida** (um `BC-xx` por rota removida), nunca apenas protegida.
+8. **Contrato.** Todo finding declara se a correção preserva o contrato HTTP ou qual quebra (`BC-xx`) ela exige. Quebras só são aceitas para findings de segurança CRITICAL ou HIGH (regra 3 do `SKILL.md`) — e, nesses, a quebra necessária é proposta, não evitada: um AP-05 HIGH cuja correção exige proteger rotas declara um `BC-xx` por rota protegida. No AP-05, a recomendação segue a tabela de situações da T14 rota a rota: rota que executa SQL/código do cliente ou destrói dados em massa é **removida** (um `BC-xx` por rota removida), nunca apenas protegida. Em projeto com login, a recomendação do AP-05 lista **todas** as rotas de escrita do inventário (`POST`/`PUT`/`PATCH`/`DELETE`), com a linha da T14 e quem pode escrever (dono ou admin, só admin, ou pública e por quê).
 9. **APIs deprecated.** A seção é obrigatória. Sem ocorrências, escreva `Nenhuma API deprecated detectada` e diga como verificou (warnings em runtime, saída do instalador, busca pelos padrões do catálogo).
+10. **Riscos residuais.** A seção é obrigatória. Liste o que a refatoração **não** elimina e por quê, com o finding de origem e a mitigação recomendada. Por exemplo: um efeito externo irreversível (cobrança, e-mail) que acontece antes da transação (T07, passo 2), ou uma garantia que depende de algo fora do código. Sem riscos, escreva `Nenhum`. O README e a saída da Fase 3 repetem esses riscos, mas é aqui que eles são registrados.
+11. **Dependências do plano.** O `Plano de refatoração` traz uma linha `Dependências:` com cada pacote que a Fase 3 vai adicionar, remover, atualizar (com a versão-alvo) ou trocar, coerente com a coluna "Substituto" de `APIs deprecated`. Sem mudanças, `Dependências: nenhuma mudança`. Mudança que não está nessa linha é desvio do plano (`SKILL.md`, Fase 3, passo 7).
 
 ## Estrutura
 
@@ -54,9 +56,15 @@ Contrato: preservado | exige BC-<nn>
 |---|---|---|---|
 | BC-01 | <MÉTODO /path> | <o que muda na resposta> | F-<nn> — <motivo de segurança> |
 
+## Riscos residuais
+| # | Risco | Finding | Por que permanece | Mitigação recomendada |
+|---|---|---|---|---|
+| R-01 | <o que pode dar errado> | F-<nn> | <limite da refatoração> | <o que fazer depois> |
+
 ## Plano de refatoração
 <árvore resumida da estrutura-alvo>
 <ordem das camadas e transformações principais por camada>
+Dependências: <adicionar/remover/atualizar/trocar, com versões> | nenhuma mudança
 
 ================================
 Total: <N> findings

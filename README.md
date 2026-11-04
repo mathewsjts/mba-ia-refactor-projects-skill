@@ -143,10 +143,10 @@ O `SKILL.md` é o **procedimento**: três fases, regras invioláveis e os format
 |---|---|---|---|
 | Análise de projeto | `analise-de-projeto.md` | Inventário de arquivos; detecção de linguagem (8), framework (11) e banco; mapeamento de rotas; matriz de responsabilidades e rubrica de arquitetura; inferência de domínio | Fase 1 |
 | Catálogo de anti-patterns | `catalogo-anti-patterns.md` | 24 anti-patterns com sinais de detecção, falsos positivos, severidade e escalonamento; tabela de 28 APIs deprecated | Fase 2 |
-| Template de relatório | `template-relatorio.md` | Estrutura, regras de ordenação e numeração, seções de APIs deprecated e Breaking Changes, exemplos preenchidos | Fase 2 |
+| Template de relatório | `template-relatorio.md` | Estrutura, regras de ordenação e numeração, seções de APIs deprecated, Breaking Changes e Riscos residuais, linha `Dependências` do plano, exemplos preenchidos | Fase 2 |
 | Guidelines de arquitetura | `guidelines-arquitetura.md` | Camadas, regra de dependência, proibições verificáveis por grep, caminhos por ponto de partida, fatia vertical de referência em Python e JS | Fase 3 |
 | Playbook de refatoração | `playbook-refatoracao.md` | 17 transformações com antes/depois em Python e JavaScript e armadilhas que quebram contrato | Fase 3 |
-| *(extra)* Validação | `protocolo-validacao.md` | Ambiente, estado reprodutível, boot, `smoke.sh`, baseline, diff e varredura final | Fases 1 e 3 |
+| *(extra)* Validação | `protocolo-validacao.md` | Ambiente, estado reprodutível, boot, `smoke.sh`, baseline, diff, varredura final, conformidade com o playbook e provas de concorrência, de tipos inválidos e de autorização | Fases 1 e 3 |
 
 ### Decisões de design
 
@@ -154,7 +154,7 @@ O `SKILL.md` é o **procedimento**: três fases, regras invioláveis e os format
 2. **Invocação só manual.** `disable-model-invocation: true` no frontmatter: uma skill que reescreve o projeto inteiro não deve ser acionada por inferência do modelo, só quando alguém digita `/refactor-arch`.
 3. **Confirmação com mecanismo concreto.** "Pedir confirmação" virou instrução operacional: usar `AskUserQuestion` quando disponível; senão, terminar o turno com `[s/n]` e esperar. Qualquer resposta ambígua encerra a skill, e em execução não interativa ela para na Fase 2. Antes da aprovação, a única escrita permitida é em `.refactor-arch/`.
 4. **Baseline antes de tocar no código.** "Os endpoints continuam respondendo" só é verificável comparando com o comportamento anterior. A Fase 1 sobe a aplicação original e grava a resposta de cada rota; a Fase 3 repete e compara. A comparação usa status, tipo de corpo e **estrutura de chaves** (não valores, que variam legitimamente), o que detecta um campo `senha` sumindo ou uma lista virando erro.
-5. **Contrato preservado por padrão.** Quebras de contrato só são aceitas para corrigir findings de segurança CRITICAL ou HIGH — por exemplo, remover `/admin/query`, tirar `senha` dos payloads ou exigir token nas rotas `DELETE` — e, nesses findings, a quebra necessária é obrigatória: um finding de segurança não pode terminar parcial por motivo de contrato. Cada quebra aparece como `BC-xx` no relatório **antes** da aprovação, e a validação classifica toda divergência não declarada como regressão.
+5. **Contrato preservado por padrão.** Quebras de contrato só são aceitas para corrigir findings de segurança CRITICAL ou HIGH — por exemplo, remover `/admin/query`, tirar `senha` dos payloads ou exigir token, com checagem de dono ou admin, nas rotas de escrita — e, nesses findings, a quebra necessária é obrigatória: um finding de segurança não pode terminar parcial por motivo de contrato. Cada quebra aparece como `BC-xx` no relatório **antes** da aprovação, e a validação classifica toda divergência não declarada como regressão.
 6. **Evidência obrigatória.** Findings só com `arquivo:linha` conferidos lendo o código; depreciação só com fonte (aviso em runtime, saída do instalador ou versão de remoção); saída final com `✓`/`✗` sem suavizar falhas.
 7. **Adaptação ao ponto de partida.** A rubrica da Fase 1 separa monolito, God Class, camadas parciais e camadas adequadas. Monolitos ganham a estrutura canônica em `src/`, com o entry point documentado mantido na raiz. Projetos com camadas parciais evoluem no lugar: `routes/` é reconhecido como Views em vez de renomeado, e o `app` importado por `seed.py` continua exportado.
 8. **Artefatos isolados e sem commits.** Relatório, baseline, logs e evidências ficam em `.refactor-arch/` (ignorado pelo git). Versionar é decisão humana.
@@ -225,7 +225,7 @@ Todos surgiram ao executar os projetos originais durante a construção da skill
 
 ## C) Resultados
 
-Na primeira rodada a skill foi executada uma vez em cada projeto, com a mesma cópia byte-idêntica e sem ajustes entre as execuções. Depois das revisões, a skill foi ajustada quatro vezes (ver abaixo). Os projetos 1 e 3 foram reexecutados do zero duas vezes e o projeto 2 uma vez, sempre a partir do código legado e com a nova versão da skill — que continua byte-idêntica nas três pastas. Cada execução foi feita com `claude -p "/refactor-arch"` e, depois da pausa da Fase 2, aprovada retomando a mesma sessão com `s`. Os números abaixo foram conferidos de forma independente: cada aplicação refatorada foi subida com banco limpo, `smoke.sh` foi reexecutado e o resultado foi comparado com o baseline gravado antes da refatoração.
+Na primeira rodada a skill foi executada uma vez em cada projeto, com a mesma cópia byte-idêntica e sem ajustes entre as execuções. Depois das revisões, a skill foi ajustada cinco vezes (ver abaixo). O projeto 3 foi reexecutado do zero três vezes e os projetos 1 e 2 duas vezes cada, sempre a partir do código legado e com a nova versão da skill — que continua byte-idêntica nas três pastas. Cada execução foi feita com `claude -p "/refactor-arch"` e, depois da pausa da Fase 2, aprovada retomando a mesma sessão com `s`. Os números abaixo foram conferidos de forma independente: cada aplicação refatorada foi subida com banco limpo, `smoke.sh` foi reexecutado e o resultado foi comparado com o baseline gravado antes da refatoração.
 
 ### Resumo dos relatórios de auditoria
 
@@ -233,9 +233,11 @@ Na primeira rodada a skill foi executada uma vez em cada projeto, com a mesma c�
 |---|---|---|---|---|---|---|---|---|
 | `code-smells-project` | 17 | 6 | 6 | 5 | 5 | **22** | 22/22 — cada um com os passos da transformação conferidos em `conformidade.md` | [audit-project-1.md](reports/audit-project-1.md) |
 | `ecommerce-api-legacy` | 16 | 5 | 8 | 3 | 4 | **20** | 20/20 — passos conferidos em `conformidade.md` | [audit-project-2.md](reports/audit-project-2.md) |
-| `task-manager-api` | 16 | 5 | 5 | 9 | 4 | **23** | 23/23 — passos conferidos em `conformidade.md` | [audit-project-3.md](reports/audit-project-3.md) |
+| `task-manager-api` | 16 | 5 | 6 | 8 | 4 | **23** | 23/23 — passos conferidos em `conformidade.md` | [audit-project-3.md](reports/audit-project-3.md) |
 
 Nenhum finding ficou parcial. Nas execuções anteriores, a paginação ficava parcial em dois projetos. No P2, paginação obrigatória mudaria o formato da resposta; a reexecução aplicou `limit`/`offset` opcionais, preservando a resposta completa sem parâmetros. No P1, um `LIMIT` sobre as linhas do `LEFT JOIN` pedido × itens cortaria os itens de um pedido no meio; a reexecução paginou por uma subconsulta de ids (`WHERE p.id IN (SELECT id FROM pedidos ORDER BY id LIMIT ? OFFSET ?)`).
+
+Os ajustes abaixo estão em ordem cronológica. Os números de finding, de severidade e de `BC-xx` citados em cada um são os daquela execução. Como cada reexecução audita do zero, a numeração muda, e os valores atuais estão nos relatórios em `reports/`.
 
 **Ajuste após a revisão.** Na primeira execução do projeto 3, o F-04 (AP-05, HIGH) terminou parcial: a skill assinou o token `fake-jwt-token-<id>`, mas `DELETE /tasks`, `/users` e `/categories` continuaram abertos a clientes anônimos, porque a regra 3 do `SKILL.md` só permitia quebrar contrato em finding CRITICAL. A refatoração não eliminava o impacto que a própria auditoria apontava. A regra passou a cobrir findings de segurança CRITICAL **ou HIGH**, e um finding de segurança não pode mais terminar parcial por motivo de contrato. O `template-relatorio.md`, o catálogo (AP-05), a T14 do playbook (token do login exigido como `Authorization: Bearer` nas rotas destrutivas, com exemplo de `require_auth`) e o protocolo de validação (captura do token no `smoke.sh` e chamada anônima de prova por rota protegida) foram ajustados juntos. Na reexecução, o relatório declarou BC-05 a BC-07 antes da confirmação, e a Fase 3 aplicou a T14: as três rotas `DELETE` respondem 401 sem token válido e 200 com o token emitido pelo `POST /login`.
 
@@ -303,6 +305,34 @@ O P2 e o P3 foram reexecutados do zero com essa versão. Com o código novo, ref
 
 No P2, a Fase 3 trocou o driver `sqlite3` pelo `better-sqlite3`, que é síncrono. Isso elimina a intercalação de escritas na conexão compartilhada e zerou o `npm audit`. O P3 ganhou o F-06 (e-mails expostos a anônimos, AP-03 HIGH), e por isso `GET /users`, `GET /users/<id>` e `GET /reports/user/<id>` passaram a exigir login (BC-11 a BC-13). Os novos Breaking Changes foram aprovados antes da Fase 3.
 
+**Quinto ajuste (revisão de conformidade das três correções).** Uma nova revisão confirmou as três correções do professor rodando cada aplicação: os `DELETE` anônimos do P3 → 401; `/admin/query` e `/admin/reset-db` do P1 → 404; 25 pedidos paralelos contra estoque 3 → 3 aceitos, estoque 0. A mesma revisão achou três pontos do mesmo tipo que ainda podiam voltar:
+
+- **P3 · F-04 (T14), escrita anônima fora do `DELETE`.** O `DELETE` exigia token, mas `PUT /tasks/<id>` anônimo trocava título, status e dono de qualquer task. `POST /tasks`, `PUT /categories/<id>` e `POST /categories` também respondiam a anônimos. Com token, um usuário comum apagava tasks de outra conta e qualquer categoria. O impacto que a auditoria descrevia, "destruição de todos os dados por iteração de ids, tudo anonimamente", continuava possível pelo `PUT`. A causa estava na T14: a linha do token falso pedia proteção "no mínimo em todo `DELETE`", e a classificação rota a rota cobria só as rotas que o legado já tratava como sensíveis. O P1 não tinha o problema, porque o catálogo já era só de admin e os pedidos já conferiam dono ou admin.
+- **P2 · T07 passo 2, risco registrado só no README.** O README dizia que o risco de cobrança sem matrícula "está registrado no relatório", mas o `audit-project-2.md` não o citava. O passo 2 da T07 mandava registrar o risco sem dizer onde, e o template não tinha lugar para isso.
+- **P2 · dependência trocada fora do plano.** O relatório recomendava `sqlite3@^6.0.1` e dizia não haver alternativa sem trocar de driver. A Fase 3 trocou por `better-sqlite3` e só o README explicava. Nenhuma regra ligava as mudanças de dependência ao plano aprovado.
+
+Ajustes feitos (as três cópias continuam byte-idênticas):
+
+- **T14, AP-05 e regra 3.** Em projeto com login, **toda** rota de escrita (`POST`, `PUT`, `PATCH`, `DELETE`) exige token. Recurso com dono só aceita escrita do dono ou de um admin, e transferir o dono só um admin pode. Recurso compartilhado, sem coluna de dono, só admin escreve. Ficam públicos o login, o cadastro público e os fluxos que o relatório declara públicos com o motivo. A T14 ganhou o exemplo `ensure_owner_or_admin`/`ensure_admin`, a ordem dos erros (401 → 404 → 403 → 400) e uma conferência por rota.
+- **Template.** Ganhou a seção obrigatória `Riscos residuais` (R-xx, com finding, motivo e mitigação) e a linha `Dependências:` no plano, coerente com a coluna "Substituto" de `APIs deprecated`. A T07 aponta o passo 2 para essa seção.
+- **Fase 3 do `SKILL.md`.** Mudança de dependência fora da linha `Dependências`, ou qualquer decisão que contrarie o relatório, vira desvio declarado na saída (`Desvios do plano aprovado`) e no `validacao.md`. Desvio silencioso é falha. A Fase 2 passou a imprimir o relatório completo, não um resumo.
+- **Protocolo de validação, B6.4.** Nova matriz de autorização (`autorizacao.sh`): para cada rota de escrita, anônimo e token adulterado → 401, usuário comum sobre recurso de outra conta ou compartilhado → 403, dono e admin → 2xx. O `smoke.sh` manda o token em toda escrita e faz uma chamada anônima de prova por rota protegida.
+
+O P2 e o P3 foram reexecutados do zero com essa versão. O P1 não precisou ser reexecutado: rodei a mesma matriz contra ele e todas as respostas foram as esperadas.
+
+| Projeto | Verificação | Antes do ajuste | Depois |
+|---|---|---|---|
+| 3 | `PUT /tasks/4` anônimo trocando título e dono | 200, task reescrita | 401 |
+| 3 | `POST /tasks`, `PUT /categories/1` anônimos | 201 / 200 | 401 / 401 |
+| 3 | Usuária comum: `DELETE`/`PUT` em task de outra conta, `DELETE /categories/2` | 200 | 403 |
+| 3 | Usuária comum: criar e editar a própria task | 201 / 200 | 201 / 200 |
+| 3 | Usuária comum transferindo a própria task para outra conta | — | 403 |
+| 3 | Admin editando task de outra conta e apagando categoria | 200 | 200 |
+| 3 | Matriz de autorização da skill (`autorizacao.txt`) | — | 10 rotas de escrita, 57 casos, 0 divergências |
+| 1 | Mesma matriz feita à mão: anônimo e token adulterado / cliente no catálogo, em pedido de outra conta ou no status / dono e admin | — | 401 / 403 / 2xx (já conforme, sem reexecução) |
+| 2 | Risco de cobrança sem matrícula | só no README | `R-01` no [relatório](reports/audit-project-2.md), com mitigação |
+| 2 | Troca para `better-sqlite3` | fora do plano aprovado | na linha `Dependências` do plano; Fase 3 com "Desvios: nenhum" |
+
 ### Estrutura antes e depois
 
 **Projeto 1 — `code-smells-project`** (monolito → estrutura canônica em `src/`, entry point mantido na raiz)
@@ -352,13 +382,14 @@ task-manager-api/                       task-manager-api/
 │                  # create_all         ├── config/settings.py, constants.py, errors.py, database.py (FK + índice único)
 ├── database.py                         ├── seed.py
 ├── seed.py                             ├── models/             # user, task, category, clock, passwords
-├── models/        # user, task,        ├── services/           # task, user, category, report, auth (token assinado; usuário recarregado)
-│                  # category           ├── controllers/        # task, user, category, report + validators   (novo)
-├── routes/        # regras, consultas  ├── routes/             # task, user, category, report, system + serializers.py (require_auth por rota)
-│                  # e serialização     └── middlewares/        # error_handler.py, auth.py (Bearer, dono/admin)  (novo)
-├── services/      # notification
-│                  # (sem uso)          removidos: services/notification_service.py, utils/ (código morto)
-└── utils/         # helpers (sem uso)  requirements.txt: marshmallow, requests e python-dotenv removidos (nunca importados)
+├── models/        # user, task,        ├── services/           # task, user, category, report, stats, auth (token assinado; usuário recarregado),
+│                  # category           │                       # authorization (ensure_owner_or_admin / ensure_admin)
+├── routes/        # regras, consultas  ├── controllers/        # task, user, category, report, system + validators   (novo)
+│                  # e serialização     ├── routes/             # task, user, category, report, system + serializers.py (require_auth em toda escrita)
+├── services/      # notification       └── middlewares/        # error_handler.py, auth.py (Bearer)  (novo)
+│                  # (sem uso)
+└── utils/         # helpers (sem uso)  removidos: services/notification_service.py, utils/ (código morto)
+                                        requirements.txt: marshmallow e requests removidos; flask 3.1.3, flask-cors 6.0.2, python-dotenv 1.2.1 (agora usado pelo config)
 ```
 
 ### Checklist de validação
@@ -408,7 +439,7 @@ task-manager-api/                       task-manager-api/
 - [x] Cada finding tem arquivo e linhas exatos
 - [x] Findings ordenados por severidade (CRITICAL → LOW)
 - [x] Mínimo de 5 findings identificados — 20
-- [x] Detecção de APIs deprecated incluída — `sqlite3@5.1.7` com transitivas vulneráveis (`npm audit`: 17 vulnerabilidades; 9 avisos `npm warn deprecated`)
+- [x] Detecção de APIs deprecated incluída — `sqlite3@5.1.7` com 9 transitivas deprecated (`npm warn deprecated`) e `tar` crítico no `npm audit`; `express@4.22.1` com `proxy-addr` crítico. Substitutos declarados no plano (`better-sqlite3@^13.0.3`, `express@^4.22.3`) → `npm audit`: 0 vulnerabilidades
 - [x] Skill pausa e pede confirmação antes da Fase 3
 
 #### Fase 3 — Refatoração
@@ -420,8 +451,9 @@ task-manager-api/                       task-manager-api/
 - [x] Error handling centralizado — `src/middlewares/errorHandler.js`
 - [x] Entry point claro — `npm start` → `src/app.js`
 - [x] Aplicação inicia sem erros
-- [x] Endpoints originais respondem corretamente — 11/13 idênticos; 2 divergências declaradas (BC-01, BC-02: rotas admin sem `X-Admin-Token` → 401)
-- [x] Passos do playbook conferidos — 20/20 findings; prova de unicidade (25 checkouts paralelos → 1 conta) e `tipos.sh` com 29 casos, nenhum 5xx
+- [x] Endpoints originais respondem corretamente — 10/12 idênticos; 2 divergências declaradas (BC-01, BC-02: rotas admin sem `X-Admin-Token` → 401). BC-03 e BC-04 (checkout sem senha ou com tipo inválido → 400) ficam fora do `smoke.sh` e são provados pelo `tipos.sh`
+- [x] Passos do playbook conferidos — 20/20 findings; prova de unicidade (30 checkouts paralelos com o mesmo e-mail → 1 conta) e `tipos.sh` com 28 casos, nenhum 5xx
+- [x] Riscos residuais no relatório (R-01 a R-05, incluindo a cobrança sem matrícula) e dependências conforme o plano aprovado, sem desvios
 
 </details>
 
@@ -432,14 +464,14 @@ task-manager-api/                       task-manager-api/
 - [x] Linguagem detectada corretamente — Python 3.9.6
 - [x] Framework detectado corretamente — Flask 3.0.0, Flask-SQLAlchemy 3.1.1, SQLAlchemy 2.0
 - [x] Domínio da aplicação descrito corretamente — gestão de tarefas (tasks, users, categories)
-- [x] Número de arquivos analisados condiz com a realidade — 15 arquivos, ~1158 linhas
+- [x] Número de arquivos analisados condiz com a realidade — 17 arquivos `.py` (incluindo os `__init__.py`), ~1158 linhas
 
 #### Fase 2 — Auditoria
 - [x] Relatório segue o template definido nos arquivos de referência
 - [x] Cada finding tem arquivo e linhas exatos
 - [x] Findings ordenados por severidade (CRITICAL → LOW)
 - [x] Mínimo de 5 findings identificados — 23
-- [x] Detecção de APIs deprecated incluída — `Query.get()` (`LegacyAPIWarning` em runtime) e `datetime.utcnow()`
+- [x] Detecção de APIs deprecated incluída — `Query.get()` (`LegacyAPIWarning` em runtime), `datetime.utcnow()` e dependências com CVE no `pip-audit` (Flask 3.0.0, Flask-Cors 4.0.0, python-dotenv 1.0.0), atualizadas conforme a linha `Dependências` do plano
 - [x] Skill pausa e pede confirmação antes da Fase 3
 
 #### Fase 3 — Refatoração
@@ -451,8 +483,9 @@ task-manager-api/                       task-manager-api/
 - [x] Error handling centralizado — `middlewares/error_handler.py`
 - [x] Entry point claro — `python seed.py` → `python app.py`, mesmos comandos documentados
 - [x] Aplicação inicia sem erros
-- [x] Endpoints originais respondem corretamente — 44/57 idênticos; 13 divergências declaradas (BC-01 a BC-13: `password` fora das respostas, token assinado, 401 anônimo em `PUT /users`, nos `DELETE` e nas leituras com e-mail)
-- [x] Passos do playbook conferidos — 23/23 findings; prova de unicidade (`POST` e `PUT /users` paralelos → 1 registro, 409 nos demais) e `tipos.sh` com 83 casos, nenhum 5xx
+- [x] Endpoints originais respondem corretamente — 46/62 idênticos; 16 divergências declaradas (BC-01 a BC-14: `password` fora das respostas, token assinado, 401 anônimo em todas as rotas de escrita e nas leituras com e-mail)
+- [x] Passos do playbook conferidos — 23/23 findings; prova de unicidade (12 `POST` e 12 `PUT /users` paralelos → 1 registro, 409 nos demais) e `tipos.sh` com 71 casos, nenhum 5xx
+- [x] Matriz de autorização — 10 rotas de escrita, 57 casos: anônimo e token adulterado → 401, outra conta → 403, dono e admin → 2xx, 0 divergências
 
 </details>
 
@@ -477,32 +510,36 @@ Prova de concorrência: estoque 3, 12 pedidos paralelos → 3×201, 9×400, 0×5
 Avisos de depreciação após o replay: nenhum
 ```
 
-**Projeto 2** (reexecução) — `ADMIN_TOKEN=… NODE_OPTIONS=--trace-deprecation npm start`
+**Projeto 2** (segunda reexecução) — `PORT=3000 ADMIN_TOKEN=… NODE_OPTIONS=--trace-deprecation npm start`
 
 ```
 > desafio-arquitetura-ia-boilerplate@1.0.0 start
 > node src/app.js
 
-Smoke test: Requisições: 13 | Idênticas ao baseline: 11 | Divergências declaradas: 2 (BC-01, BC-02) | Regressões: 0
+Smoke test: Requisições: 12 | Idênticas ao baseline: 10 | Divergências declaradas: 2 (BC-01, BC-02) | Regressões: 0
 GET /api/admin/financial-report e DELETE /api/users/:id sem X-Admin-Token → 401 Não autorizado
-Unicidade: 25 checkouts paralelos com o mesmo e-mail novo → 1 registro em users
-Tipos inválidos: 29 casos, nenhum 5xx (antes: card numérico derrubava o processo)
-npm audit: 17 vulnerabilidades → 0; npm warn deprecated: 9 → 0
+POST /api/checkout com e-mail novo sem senha → 400 (antes: conta criada com a senha 123456)
+Unicidade: 30 checkouts paralelos com o mesmo e-mail novo → 1 usuário; rollback provado
+Tipos inválidos: 28 casos, nenhum 5xx (antes: card ou pwd numérico derrubava o processo)
+npm audit: 0 vulnerabilidades; npm warn deprecated: 9 → 0
+Riscos residuais: R-01 a R-05 no relatório | Desvios do plano aprovado: nenhum
 ```
 
-**Projeto 3** (segunda reexecução) — `python seed.py` e depois `PORT=5050 PYTHONWARNINGS=default .venv/bin/python app.py`
+**Projeto 3** (terceira reexecução) — `python seed.py` e depois `PORT=5055 PYTHONWARNINGS=default .venv/bin/python app.py`
 
 ```
  * Serving Flask app 'app'
  * Debug mode: off
- * Running on http://127.0.0.1:5050
+ * Running on http://127.0.0.1:5055
 
-Smoke test: 57 requisições | 44 idênticas ao baseline | 13 divergências declaradas (BC-01 a BC-13) | 0 regressões
-POST /users anônimo com role admin → 201 com role "user"; PUT /users/<id> sem token → 401
-Unicidade: 10 POST /users paralelos com o mesmo e-mail → 1×201 + 9×409; idem com PUT
-Tipos inválidos: 83 casos, nenhum 5xx
+Smoke test: 62 requisições | 46 idênticas ao baseline | 16 divergências declaradas (BC-01 a BC-14) | 0 regressões (2 ciclos)
+Matriz de autorização: 10 rotas de escrita, 57 casos — anônimo/adulterado → 401, outra conta → 403, dono/admin → 2xx
+Unicidade: 12 POST /users paralelos com o mesmo e-mail → 1×201 + 11×409; idem com PUT
+Tipos inválidos: 71 casos, nenhum 5xx
 Avisos de depreciação após o replay: nenhum (antes: LegacyAPIWarning em task_routes.py, user_routes.py, report_routes.py)
 ```
+
+Nas duas reexecuções, o replay independente do `smoke.sh` deu exatamente as divergências declaradas. No P3, o resultado foi idêntico ao `depois.txt` gravado pela skill.
 
 Verificações extras feitas fora da skill, contra as aplicações refatoradas:
 
@@ -523,17 +560,20 @@ Verificações extras feitas fora da skill, contra as aplicações refatoradas:
 | 3 | `DELETE /tasks/1`, `/users/2`, `/categories/1` sem token | 200, apaga | 401 |
 | 3 | `DELETE /tasks/1` com `Bearer fake-jwt-token-1` ou token adulterado | — | 401 |
 | 3 | `DELETE /tasks/1` com `Bearer <token do /login>` | — | 200 |
-| 3 | `GET /tasks` e `POST /tasks` sem token | 200 / 201 | 200 / 201 (rotas sem dado pessoal seguem abertas) |
+| 3 | `GET /tasks` sem token | 200 | 200 (leitura sem dado pessoal segue pública) |
+| 3 | `POST /tasks`, `PUT /tasks/4` e `PUT /categories/1` sem token | 201 / 200 / 200 | 401 |
+| 3 | Usuário comum apagando task de outra conta ou categoria | 200 | 403 |
+| 2 | `POST /api/checkout` com e-mail novo sem senha | 200, senha `123456` | 400 |
 | 3 | `POST /users` anônimo com `role: admin` e `PUT /users/2` sem token | 201 admin / 200 | 201 `user` / 401 |
 | 1, 2, 3 | rota inexistente / método não permitido | 404 / 405 | 404 / 405 (preservados) |
 
 ### Comportamento da skill em stacks diferentes
 
-- **Cinco iterações.** Os critérios de aceite foram atingidos nos três projetos na primeira execução. A primeira revisão apontou que o F-04 do P3 ficou parcial pela regra de contrato; depois do ajuste na regra, uma reexecução do P3 fechou o finding sem nenhuma regressão. A segunda revisão apontou que o F-05 do P1 protegeu com token rotas que a T14 manda remover; depois do ajuste no texto da skill, uma reexecução do P1 removeu as duas rotas sem nenhuma regressão. A terceira revisão apontou que o F-09 do P1 foi dado como corrigido sem o passo 3 da T07. A Fase 3 passou a exigir e registrar todos os passos de cada transformação, a validação passou a conferi-los e a provar a concorrência, e uma nova reexecução do P1 fechou a corrida sem nenhuma regressão. Por fim, uma revisão própria dos três projetos procurou o mesmo padrão e o achou no P2 (T07) e no P3 (T14). Depois do quarto ajuste, os dois foram reexecutados e os ataques da revisão deixaram de funcionar.
+- **Seis iterações.** Os critérios de aceite foram atingidos nos três projetos na primeira execução. A primeira revisão apontou que o F-04 do P3 ficou parcial pela regra de contrato; depois do ajuste na regra, uma reexecução do P3 fechou o finding sem nenhuma regressão. A segunda revisão apontou que o F-05 do P1 protegeu com token rotas que a T14 manda remover; depois do ajuste no texto da skill, uma reexecução do P1 removeu as duas rotas sem nenhuma regressão. A terceira revisão apontou que o F-09 do P1 foi dado como corrigido sem o passo 3 da T07. A Fase 3 passou a exigir e registrar todos os passos de cada transformação, a validação passou a conferi-los e a provar a concorrência, e uma nova reexecução do P1 fechou a corrida sem nenhuma regressão. Por fim, uma revisão própria dos três projetos procurou o mesmo padrão e o achou no P2 (T07) e no P3 (T14). Depois do quarto ajuste, os dois foram reexecutados e os ataques da revisão deixaram de funcionar. A revisão das três correções achou mais três pontos: escrita anônima fora do `DELETE` no P3, risco de cobrança sem registro no relatório do P2 e dependência trocada fora do plano no P2. Depois do quinto ajuste, o P2 e o P3 foram reexecutados, e o P1 foi conferido contra a nova regra sem precisar de reexecução.
 - **A Fase 3 se adaptou ao ponto de partida.** O monolito Flask (P1) ganhou a estrutura canônica em `src/`, mantendo `python app.py`. A God Class Express (P2) foi desmontada dentro do `src/` existente, com callbacks convertidos para `async/await` e checkout transacional. O projeto com camadas parciais (P3) evoluiu no lugar: nenhuma pasta existente foi renomeada, `controllers/` e `middlewares/` foram criados e `from app import app, db` continuou funcionando no `seed.py`.
 - **A detecção mudou conforme a stack.** No Node, a depreciação veio de `npm audit` e da árvore de dependências; no Flask/SQLAlchemy, de `LegacyAPIWarning` em runtime. O conflito da porta 5000 (AirPlay no macOS) foi detectado nos dois projetos Flask, que subiram em outra porta sem editar código.
-- **O contrato HTTP foi preservado.** Só mudaram as respostas declaradas como Breaking Changes antes da aprovação: 15 no P1 (14 de rota e 1 de execução, debug e host), 2 no P2 e 13 no P3, todos ligados a findings de segurança (CRITICAL ou HIGH).
-- **Custo e duração.** Fases 1–2 levaram de 6 a 10 minutos por projeto; a Fase 3, de 8 a 16 minutos. Nas últimas reexecuções, cada projeto custou de US$ 9 a US$ 13.
+- **O contrato HTTP foi preservado.** Só mudaram as respostas declaradas como Breaking Changes antes da aprovação: 15 no P1 (14 de rota e 1 de execução, debug e host), 4 no P2 e 14 no P3, todos ligados a findings de segurança (CRITICAL ou HIGH).
+- **Custo e duração.** Fases 1–2 levaram de 6 a 10 minutos por projeto; a Fase 3, de 8 a 16 minutos. Nas últimas reexecuções, cada projeto custou de US$ 8 a US$ 14 (P2: US$ 8,38; P3: US$ 13,60).
 
 #### Limitações observadas
 
@@ -547,10 +587,10 @@ Registradas para a próxima iteração da skill. Nenhuma afeta os critérios de 
      - o tempo de resposta revela se o e-mail está cadastrado (cerca de 150 vezes mais lento para e-mail existente);
      - como o e-mail não é único, contas duplicadas com o e-mail de outra pessoa deixam o login dela lento (7 s com 30 duplicatas).
    - **`/health`:** continua contando produtos desativados pela exclusão lógica.
-2. **Risco de cobrança sem registro no P2:** a cobrança acontece antes da transação, porque o gateway externo não participa dela. Hoje o gateway é simulado; com um real, uma falha depois da aprovação deixaria o cliente cobrado sem matrícula. O risco está registrado no relatório (T07, passo 2).
-3. **Relatório resumido no terminal:** nos três projetos o terminal mostrou uma versão condensada dos findings, apesar de o `SKILL.md` pedir o relatório completo. O arquivo gravado em `.refactor-arch/relatorio-auditoria.md` (copiado para `reports/`) está completo.
+2. **Risco de cobrança sem registro no P2:** a cobrança acontece antes da transação, porque o gateway externo não participa dela. Hoje o gateway é simulado; com um real, uma falha depois da aprovação deixaria o cliente cobrado sem matrícula. O risco é o `R-01` da seção `Riscos residuais` do [relatório](reports/audit-project-2.md), com a mitigação recomendada (pagamento `PENDING` antes de cobrar, estorno ou idempotência no gateway).
+3. **Relatório resumido no terminal (P1):** nas execuções anteriores ao quinto ajuste, o terminal mostrou uma versão condensada dos findings, apesar de o `SKILL.md` pedir o relatório completo. O arquivo gravado em `.refactor-arch/relatorio-auditoria.md` (copiado para `reports/`) estava completo. A Fase 2 passou a exigir o conteúdo integral, e as reexecuções do P2 e do P3 imprimiram o relatório inteiro. O P1 continua com a saída da execução anterior.
 4. **Idioma:** na primeira execução, a narração entre etapas do P1 saiu em inglês, embora os blocos de saída estivessem em português. Isso não foi reavaliado nas reexecuções, porque o modo `claude -p` só devolve a mensagem final, e essa saiu em português nos três projetos.
-5. **Variação entre execuções:** o escopo de Breaking Changes mudou de uma execução para outra do mesmo projeto (P1: 4 → 15; P3: 7 → 13), porque cada auditoria classifica as rotas pela tabela da T14 de forma independente. As duas aplicam as regras, mas a mais recente aplica a regra 3 por inteiro.
+5. **Variação entre execuções:** o escopo de Breaking Changes mudou de uma execução para outra do mesmo projeto (P1: 4 → 15; P2: 2 → 4; P3: 7 → 13 → 14), porque cada auditoria classifica as rotas pela tabela da T14 de forma independente. As duas aplicam as regras, mas a mais recente aplica a regra 3 por inteiro.
 
 Resolvidas pelo quarto ajuste e conferidas nas reexecuções: o `"priority": "2"` que respondia 500 no P3 (agora 400; o `tipos.sh` cobre esse tipo de caso), o service do P2 que importava `views/serializers` (nenhum import para camada acima nos dois projetos) e a classificação do P1 como "Camadas parciais" (saiu "Monolítica sem camadas").
 

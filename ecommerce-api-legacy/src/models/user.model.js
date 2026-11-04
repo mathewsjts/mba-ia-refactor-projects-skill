@@ -1,25 +1,34 @@
 class UserModel {
-  // O UNIQUE de users.email decide a corrida: requisições paralelas com o mesmo e-mail
-  // novo inserem uma vez e as demais reaproveitam o registro. Conta existente nunca
-  // tem nome nem senha sobrescritos.
-  async findOrCreate(tx, { name, email, passwordHash }) {
-    await tx.run(
-      'INSERT INTO users (name, email, pass) VALUES (?, ?, ?) ON CONFLICT(email) DO NOTHING',
-      [name, email, passwordHash],
-    );
-    const user = await tx.get('SELECT id FROM users WHERE email = ?', [email]);
-    return user.id;
+  constructor(database) {
+    this.database = database;
+    this.db = database.connection;
   }
 
-  // Dependentes primeiro: as FOREIGN KEY do schema recusam deixar órfãos.
-  async deleteById(tx, userId) {
-    await tx.run(
-      'DELETE FROM payments WHERE enrollment_id IN (SELECT id FROM enrollments WHERE user_id = ?)',
-      [userId],
-    );
-    await tx.run('DELETE FROM enrollments WHERE user_id = ?', [userId]);
-    const { changes } = await tx.run('DELETE FROM users WHERE id = ?', [userId]);
-    return changes;
+  findByEmail(email) {
+    return this.db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+  }
+
+  // Unicidade garantida pelo UNIQUE de users.email: insere só se o e-mail não existe
+  // e devolve o id do registro, novo ou já existente. Sem hash, não cria conta.
+  findOrCreate({ name, email, passwordHash }) {
+    if (passwordHash) {
+      this.db
+        .prepare('INSERT INTO users (name, email, pass) VALUES (?, ?, ?) ON CONFLICT(email) DO NOTHING')
+        .run(name, email, passwordHash);
+    }
+    const row = this.findByEmail(email);
+    return row ? row.id : undefined;
+  }
+
+  // Remove o usuário com matrículas e pagamentos, filhas antes das mães, numa transação.
+  deleteWithDependents(userId) {
+    return this.database.transaction(() => {
+      this.db
+        .prepare('DELETE FROM payments WHERE enrollment_id IN (SELECT id FROM enrollments WHERE user_id = ?)')
+        .run(userId);
+      this.db.prepare('DELETE FROM enrollments WHERE user_id = ?').run(userId);
+      return this.db.prepare('DELETE FROM users WHERE id = ?').run(userId).changes;
+    });
   }
 }
 

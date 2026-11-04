@@ -7,8 +7,14 @@ class AppError extends Error {
 }
 
 class ValidationError extends AppError {
-  constructor(message = 'Bad Request') {
+  constructor(message) {
     super(message, 400);
+  }
+}
+
+class UnauthorizedError extends AppError {
+  constructor(message) {
+    super(message, 401);
   }
 }
 
@@ -18,10 +24,4 @@ class NotFoundError extends AppError {
   }
 }
 
-class PaymentDeclinedError extends AppError {
-  constructor(message = 'Pagamento recusado') {
-    super(message, 400);
-  }
-}
-
-module.exports = { AppError, ValidationError, NotFoundError, PaymentDeclinedError };
+module.exports = { AppError, ValidationError, UnauthorizedError, NotFoundError };

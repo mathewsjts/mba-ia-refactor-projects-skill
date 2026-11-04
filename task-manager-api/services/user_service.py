@@ -1,13 +1,13 @@
 import logging
 
-from constants import ADMIN_ROLE, DEFAULT_ROLE, EMAIL_TAKEN_MESSAGE, USER_NOT_FOUND_MESSAGE
+from constants import ADMIN_ROLE, DEFAULT_ROLE
 from errors import ConflictError, ForbiddenError, NotFoundError
-from models.user import User
+from models.user import DuplicateEmailError, User
+from services.authorization import ensure_admin, ensure_owner_or_admin
 
 logger = logging.getLogger(__name__)
 
-PRIVILEGED_FIELDS = frozenset({"role", "active"})
-FORBIDDEN_MESSAGE = "Acesso negado"
+EMAIL_TAKEN = 'Email já cadastrado'
 
 
 class UserService:
@@ -15,61 +15,73 @@ class UserService:
         self._users = user_repository
         self._tasks = task_repository
 
-    def list_users(self, limit=None, offset=0):
-        return self._users.list_with_task_count(limit, offset)
+    def list(self, actor, limit=None, offset=0):
+        ensure_admin(actor)
+        users = self._users.list(limit, offset)
+        task_counts = self._tasks.count_by_user()
+        return [(user, task_counts.get(user.id, 0)) for user in users]
 
     def get(self, user_id):
         user = self._users.get(user_id)
         if user is None:
-            raise NotFoundError(USER_NOT_FOUND_MESSAGE)
+            raise NotFoundError('Usuário não encontrado')
         return user
 
-    def get_with_tasks(self, user_id):
+    def get_own_or_admin(self, actor, user_id):
+        user = self.get(user_id)                          # 404 antes do 403
+        ensure_owner_or_admin(actor, user.id)
+        return user
+
+    def get_detail(self, actor, user_id):
+        user = self.get_own_or_admin(actor, user_id)
+        return user, self._tasks.list_by_user(user.id)
+
+    def list_tasks(self, user_id):
         user = self.get(user_id)
-        return user, self._tasks.list_by_user(user_id)
+        return self._tasks.list_by_user(user.id)
 
-    def get_user_tasks(self, user_id):
-        return self.get_with_tasks(user_id)[1]
-
-    def ensure_email_available(self, email, exclude_id=None):
-        """Checagem prévia, só para a mensagem; a garantia é o UNIQUE no banco (UserRepository)."""
-        existing = self._users.get_by_email(email)
-        if existing is not None and existing.id != exclude_id:
-            raise ConflictError(EMAIL_TAKEN_MESSAGE)
-
-    def create(self, fields, actor=None):
-        # Cadastro público grava o perfil padrão; só um admin autenticado escolhe o perfil (T14).
-        role = fields["role"] if actor is not None and actor.is_admin() else DEFAULT_ROLE
+    def register(self, actor, fields):
+        # Cadastro público: o perfil enviado só vale quando quem chama é admin.
+        role = fields.get('role', DEFAULT_ROLE) if actor is not None and actor.is_admin() else DEFAULT_ROLE
         return self._create(fields, role)
 
     def create_admin(self, fields):
         return self._create(fields, ADMIN_ROLE)
 
-    def _create(self, fields, role):
-        user = User(name=fields["name"], email=fields["email"], role=role)
-        user.set_password(fields["password"])
-        user = self._users.add(user)
-        logger.info("Usuário criado: %s - %s", user.id, user.name)
+    def update(self, actor, user, fields):
+        if ('role' in fields or 'active' in fields) and not actor.is_admin():
+            raise ForbiddenError('Acesso negado')
+        if 'password' in fields and actor.id != user.id:
+            raise ForbiddenError('Acesso negado')         # só o próprio usuário troca a própria senha
+        if 'email' in fields:
+            existing = self._users.get_by_email(fields['email'])
+            if existing is not None and existing.id != user.id:
+                raise ConflictError(EMAIL_TAKEN)
+
+        for name in ('name', 'email', 'role', 'active'):
+            if name in fields:
+                setattr(user, name, fields[name])
+        if 'password' in fields:
+            user.set_password(fields['password'])
+        try:
+            self._users.save()
+        except DuplicateEmailError:
+            raise ConflictError(EMAIL_TAKEN)              # outra requisição gravou o e-mail depois da checagem
         return user
 
-    def authorize_update(self, actor, user, requested_fields):
-        """Só o próprio usuário altera a própria conta; perfil, estado e contas alheias exigem admin."""
-        if actor.is_admin():
-            return
-        if actor.id != user.id or PRIVILEGED_FIELDS & set(requested_fields):
-            raise ForbiddenError(FORBIDDEN_MESSAGE)
-
-    def update(self, user, fields):
-        for name, value in fields.items():
-            if name == "password":
-                user.set_password(value)
-            else:
-                setattr(user, name, value)
-        return self._users.save(user)
-
     def delete(self, actor, user_id):
-        user = self.get(user_id)
-        if not actor.is_admin() and actor.id != user.id:
-            raise ForbiddenError(FORBIDDEN_MESSAGE)
-        self._users.delete(user)
-        logger.info("Usuário deletado: %s", user_id)
+        user = self.get_own_or_admin(actor, user_id)
+        self._users.delete(user)                          # as tasks saem pela cascata do relacionamento
+        logger.info('Usuário deletado: %s', user_id)
+
+    def _create(self, fields, role):
+        if self._users.get_by_email(fields['email']) is not None:
+            raise ConflictError(EMAIL_TAKEN)
+        user = User(name=fields['name'], email=fields['email'], role=role)
+        user.set_password(fields['password'])
+        try:
+            self._users.add(user)
+        except DuplicateEmailError:
+            raise ConflictError(EMAIL_TAKEN)              # outra requisição gravou o e-mail depois da checagem
+        logger.info('Usuário criado: %s', user.id)
+        return user

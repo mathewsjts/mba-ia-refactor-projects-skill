@@ -28,7 +28,7 @@ Ficam no mesmo diretório deste `SKILL.md` — a partir da raiz do projeto, `.cl
 
 1. **Nenhuma modificação antes da confirmação.** Até o usuário aprovar explicitamente no fim da Fase 2, você não cria, altera, move nem apaga arquivo algum do projeto. Exceções: escrever dentro de `.refactor-arch/` (diretório de trabalho da skill), instalar dependências declaradas e subir a aplicação para capturar o baseline.
 2. **Evidência, não estimativa.** Todo finding cita arquivo e linha(s) conferidos lendo o arquivo. Toda afirmação de sucesso na Fase 3 corresponde a uma saída real de comando. O que não pôde ser verificado é declarado como não verificado.
-3. **Contrato HTTP preservado.** Método, path, status code, tipo de corpo (JSON ou texto) e estrutura de chaves das respostas continuam iguais. A **única** exceção é a correção de um finding **de segurança** de severidade CRITICAL **ou HIGH** (AP-01 a AP-05, AP-10, AP-16) — e toda quebra desse tipo é declarada em `Breaking Changes propostos` no relatório, *antes* da confirmação. Para AP-05 isso significa aplicar a T14 por completo, qualquer que seja a severidade, seguindo a ação da tabela de situações para **cada rota**: rota que executa SQL ou código enviado pelo cliente, ou que destrói dados em massa, é **removida** da API — exigir credencial nela não corrige o finding; as demais rotas privilegiadas ou destrutivas passam a exigir credencial — e escrever campo de perfil, credencial ou estado da conta (`role`, senha, `ativo`) é privilegiado mesmo em `POST`/`PUT`, então "preservar o contrato" nunca justifica deixar essas rotas abertas; assinar um token falso sem exigi-lo não basta.
+3. **Contrato HTTP preservado.** Método, path, status code, tipo de corpo (JSON ou texto) e estrutura de chaves das respostas continuam iguais. A **única** exceção é a correção de um finding **de segurança** de severidade CRITICAL **ou HIGH** (AP-01 a AP-05, AP-10, AP-16) — e toda quebra desse tipo é declarada em `Breaking Changes propostos` no relatório, *antes* da confirmação. Para AP-05 isso significa aplicar a T14 por completo, qualquer que seja a severidade, seguindo a ação da tabela de situações para **cada rota**: rota que executa SQL ou código enviado pelo cliente, ou que destrói dados em massa, é **removida** da API — exigir credencial nela não corrige o finding; as demais rotas privilegiadas ou destrutivas passam a exigir credencial — e escrever campo de perfil, credencial ou estado da conta (`role`, senha, `ativo`) é privilegiado mesmo em `POST`/`PUT`, então "preservar o contrato" nunca justifica deixar essas rotas abertas; assinar um token falso sem exigi-lo não basta. Em projeto **com login**, isso vale para **toda rota de escrita** (`POST`, `PUT`, `PATCH`, `DELETE`), não só para o `DELETE`: ela exige token, e a T14 diz quem pode escrever — o dono do recurso ou um admin; num recurso compartilhado, sem dono, só um admin. Ficam públicos só o login, o cadastro público e os fluxos que o relatório declara públicos com o motivo.
 4. **Comandos de execução preservados.** Os comandos documentados para instalar, popular e subir a aplicação (README, `scripts` do manifesto, bloco `__main__`, scripts de seed) continuam funcionando depois da refatoração.
 5. **Adapte-se ao ponto de partida.** Um monolito é reestruturado; um projeto que já tem camadas é refinado. Não renomeie nem mova o que já cumpre o papel certo.
 6. **Não faça commit** nem altere o histórico git. Versionar é decisão do usuário.
@@ -72,8 +72,8 @@ Objetivo: produzir um relatório confiável e obter autorização para modificar
 2. Para **cada** anti-pattern do catálogo, aplique os sinais de detecção sobre os arquivos-fonte (busca textual e leitura do trecho). Confirme cada ocorrência lendo o código ao redor e descarte os falsos positivos descritos no catálogo.
 3. Consolide por causa raiz: várias ocorrências do mesmo anti-pattern com a mesma causa viram **um** finding com todas as localizações.
 4. Classifique a severidade pelo catálogo e aplique as regras de escalonamento.
-5. Leia `template-relatorio.md` e monte o relatório, incluindo `Breaking Changes propostos` — toda mudança de contrato que a Fase 3 fará, com o finding que a justifica. Toda rota que a T14 passará a proteger **ou remover** é um Breaking Change e entra nessa tabela; a recomendação do finding AP-05 diz, rota a rota, qual linha da tabela da T14 se aplica (remover ou proteger).
-6. Grave o relatório em `.refactor-arch/relatorio-auditoria.md` e imprima-o **completo** no terminal.
+5. Leia `template-relatorio.md` e monte o relatório, incluindo `Breaking Changes propostos` — toda mudança de contrato que a Fase 3 fará, com o finding que a justifica. Toda rota que a T14 passará a proteger **ou remover** é um Breaking Change e entra nessa tabela; a recomendação do finding AP-05 diz, rota a rota, qual linha da tabela da T14 se aplica (remover ou proteger). Em projeto com login, a recomendação percorre **todas** as rotas de escrita do inventário, não só as que o legado já tratava como sensíveis. Preencha também `Riscos residuais`, com o que a refatoração não elimina (ex.: efeito externo antes da transação, T07 passo 2), e a linha `Dependências` do plano, com toda dependência que a Fase 3 vai adicionar, remover, atualizar ou trocar.
+6. Grave o relatório em `.refactor-arch/relatorio-auditoria.md` e imprima-o **completo** no terminal: a resposta da Fase 2 traz o conteúdo integral do arquivo, com todos os blocos `### F-`, sem resumir.
 7. **PARE e peça confirmação** antes de qualquer modificação:
    - Se a ferramenta `AskUserQuestion` estiver disponível, use-a com as opções "Sim, prosseguir com a refatoração" e "Não, encerrar aqui".
    - Caso contrário, termine a resposta com a linha `Fase 2 concluída. Prosseguir com a refatoração (Fase 3)? [s/n]` e aguarde a próxima mensagem do usuário.
@@ -104,7 +104,8 @@ Objetivo: reestruturar para MVC, eliminar os findings e provar que a aplicação
 5. **Comentário não substitui código.** Docstring ou comentário que cita uma transformação (`T07`) ou promete uma garantia ("condicional", "atômico", "em transação", "protegido", "validado") precisa apontar para código que a cumpre. Se o código não cumpre, aplique o passo que falta — não ajuste o comentário para esconder a falta.
 6. Todo finding do relatório termina em um de três estados: **corrigido** (todos os passos da transformação aplicados ou justificados como N/A em `conformidade.md`), **parcial** (dizendo qual passo falta) ou **não corrigido** (dizendo o motivo, ex.: exigiria quebra de contrato não autorizada). Nenhum finding é omitido. Finding de segurança CRITICAL ou HIGH nunca termina parcial ou não corrigido por motivo de contrato — a quebra necessária é declarada e aplicada (regra 3). Finding HIGH ou CRITICAL com passo faltando não é entregue parcial: aplique o passo.
 7. Prefira bibliotecas já declaradas no manifesto e a biblioteca padrão. Se adicionar uma dependência, atualize o manifesto e instale-a.
-8. Leia de novo `protocolo-validacao.md` e execute a **Parte B — Validação**: mesmo estado inicial do baseline, boot pelo comando documentado, replay de `smoke.sh`, `diff` contra `baseline.txt`, varredura de anti-patterns remanescentes, conferência passo a passo de `conformidade.md` contra o código, a prova de concorrência (escrita condicional e unicidade da T07) e as entradas de tipo inválido (`tipos.sh`).
+   - **O plano aprovado manda.** Toda dependência adicionada, removida, atualizada ou trocada (ex.: trocar o driver do banco) precisa estar na linha `Dependências` do plano, e a versão escolhida precisa ser a que o relatório recomenda. Se a Fase 3 descobrir que precisa de outra coisa, a mudança vira um **desvio**: registre em `.refactor-arch/validacao.md` e na seção `Desvios do plano aprovado` da saída final o que foi aprovado, o que foi feito, o motivo e a evidência. O mesmo vale para qualquer outra decisão que contrarie o relatório. Desvio silencioso é falha da Fase 3.
+8. Leia de novo `protocolo-validacao.md` e execute a **Parte B — Validação**: mesmo estado inicial do baseline, boot pelo comando documentado, replay de `smoke.sh`, `diff` contra `baseline.txt`, varredura de anti-patterns remanescentes, conferência passo a passo de `conformidade.md` contra o código, a prova de concorrência (escrita condicional e unicidade da T07), as entradas de tipo inválido (`tipos.sh`) e, em projeto com login, a matriz de autorização (`autorizacao.sh`).
 9. Toda divergência que **não** esteja em `Breaking Changes propostos` é regressão, e todo passo de `conformidade.md` sem código correspondente também: corrija e valide de novo. Limite de 5 ciclos; se não convergir, pare e reporte exatamente o que diverge.
 10. Grave `.refactor-arch/validacao.md` com as evidências e derrube a aplicação.
 11. Imprima:
@@ -123,6 +124,12 @@ CRITICAL: <corrigidos>/<total> | HIGH: <c>/<t> | MEDIUM: <c>/<t> | LOW: <c>/<t>
 ## Breaking Changes aplicados
 <lista, ou "Nenhum">
 
+## Desvios do plano aprovado
+<aprovado → feito, motivo e evidência; ou "Nenhum">
+
+## Riscos residuais
+<os do relatório, com o estado de cada um; ou "Nenhum">
+
 ## Validação
   ✓ Aplicação inicia sem erros (<comando usado>)
   ✓ Endpoints originais respondem: <iguais>/<total> idênticos ao baseline, <K> divergências declaradas
@@ -130,6 +137,8 @@ CRITICAL: <corrigidos>/<total> | HIGH: <c>/<t> | MEDIUM: <c>/<t> | LOW: <c>/<t>
   ✓ Passos do playbook conferidos: <X>/<Y> findings com a transformação completa (.refactor-arch/conformidade.md)
   ✓ Prova de concorrência: <invariante conferido> | N/A: <motivo>
   ✓ Entradas de tipo inválido: <N> casos, nenhum 5xx (.refactor-arch/tipos.txt)
+  ✓ Matriz de autorização: <N> rotas de escrita, anônimo → 401 e outra conta → 403 (.refactor-arch/autorizacao.txt) | N/A: <projeto sem login>
+  ✓ Dependências conforme o plano aprovado | <K> desvios declarados acima
 Evidências: .refactor-arch/validacao.md
 ================================
 ```
