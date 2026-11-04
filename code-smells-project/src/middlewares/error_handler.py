@@ -1,8 +1,3 @@
-"""Tratamento de erros centralizado (T10).
-
-Traduz erros de domínio para o formato de erro que o projeto já usa; erros
-inesperados viram 500 genérico, sem vazar `str(e)`.
-"""
 import logging
 
 from flask import jsonify
@@ -16,12 +11,14 @@ logger = logging.getLogger(__name__)
 def register_error_handlers(app):
     @app.errorhandler(AppError)
     def handle_app_error(err):
-        return jsonify(err.to_body()), err.status_code
+        corpo = {"erro": err.mensagem}
+        if err.incluir_sucesso:
+            corpo["sucesso"] = False
+        return jsonify(corpo), err.status_code
 
     @app.errorhandler(HTTPException)
     def handle_http_exception(err):
-        # 404 de rota inexistente (inclui /admin/* removidas), 405 etc. seguem nativos.
-        return err
+        return err  # 404 de rota inexistente, 405 etc. seguem com o comportamento nativo
 
     @app.errorhandler(Exception)
     def handle_unexpected(err):

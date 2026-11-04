@@ -1,7 +1,7 @@
+.env
 __pycache__/
 *.pyc
 .venv/
-loja.db
-*.sqlite*
+*.db
+instance/
 .refactor-arch/
-.env

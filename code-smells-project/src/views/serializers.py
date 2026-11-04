@@ -1,69 +1,42 @@
-"""Serializers com whitelist de campos públicos (T13).
+"""Representação pública das entidades. Campos fora destas listas (ex.: senha) não saem na API."""
 
-Nenhum serializer expõe `senha` (BC-04). A representação de login não traz
-`criado_em`, mantendo exatamente o contrato original.
-"""
+CAMPOS_PRODUTO = ("id", "nome", "descricao", "preco", "estoque", "categoria", "ativo", "criado_em")
+CAMPOS_USUARIO = ("id", "nome", "email", "tipo", "criado_em")
+CAMPOS_USUARIO_LOGIN = ("id", "nome", "email", "tipo")
+CAMPOS_PEDIDO = ("id", "usuario_id", "status", "total", "criado_em")
+CAMPOS_ITEM_PEDIDO = ("produto_id", "produto_nome", "quantidade", "preco_unitario")
+
+
+def _campos(entidade, campos):
+    return {campo: entidade[campo] for campo in campos}
 
 
 def serialize_produto(produto):
-    return {
-        "id": produto["id"],
-        "nome": produto["nome"],
-        "descricao": produto["descricao"],
-        "preco": produto["preco"],
-        "estoque": produto["estoque"],
-        "categoria": produto["categoria"],
-        "ativo": produto["ativo"],
-        "criado_em": produto["criado_em"],
-    }
+    return _campos(produto, CAMPOS_PRODUTO)
 
 
 def serialize_produtos(produtos):
-    return [serialize_produto(p) for p in produtos]
+    return [serialize_produto(produto) for produto in produtos]
 
 
 def serialize_usuario(usuario):
-    return {
-        "id": usuario["id"],
-        "nome": usuario["nome"],
-        "email": usuario["email"],
-        "tipo": usuario["tipo"],
-        "criado_em": usuario["criado_em"],
-    }
+    return _campos(usuario, CAMPOS_USUARIO)
 
 
 def serialize_usuarios(usuarios):
-    return [serialize_usuario(u) for u in usuarios]
+    return [serialize_usuario(usuario) for usuario in usuarios]
 
 
-def serialize_login(usuario):
-    return {
-        "id": usuario["id"],
-        "nome": usuario["nome"],
-        "email": usuario["email"],
-        "tipo": usuario["tipo"],
-    }
-
-
-def serialize_item_pedido(item):
-    return {
-        "produto_id": item["produto_id"],
-        "produto_nome": item["produto_nome"],
-        "quantidade": item["quantidade"],
-        "preco_unitario": item["preco_unitario"],
-    }
+def serialize_login(usuario, token):
+    return {**_campos(usuario, CAMPOS_USUARIO_LOGIN), "token": token}
 
 
 def serialize_pedido(pedido):
     return {
-        "id": pedido["id"],
-        "usuario_id": pedido["usuario_id"],
-        "status": pedido["status"],
-        "total": pedido["total"],
-        "criado_em": pedido["criado_em"],
-        "itens": [serialize_item_pedido(i) for i in pedido["itens"]],
+        **_campos(pedido, CAMPOS_PEDIDO),
+        "itens": [_campos(item, CAMPOS_ITEM_PEDIDO) for item in pedido["itens"]],
     }
 
 
 def serialize_pedidos(pedidos):
-    return [serialize_pedido(p) for p in pedidos]
+    return [serialize_pedido(pedido) for pedido in pedidos]

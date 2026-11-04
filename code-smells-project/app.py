@@ -1,8 +1,5 @@
-"""Entry point documentado: `python app.py`.
+import logging
 
-Expõe `app` no nível do módulo (usado também por `flask --app app ...`) e sobe
-o servidor com host/porta/debug vindos da configuração (T02).
-"""
 from src.app import create_app
 from src.config.settings import Settings
 
@@ -10,4 +7,5 @@ settings = Settings.from_env()
 app = create_app(settings)
 
 if __name__ == "__main__":
+    logging.getLogger(__name__).info("Servidor iniciado em http://%s:%s", settings.host, settings.port)
     app.run(host=settings.host, port=settings.port, debug=settings.debug)

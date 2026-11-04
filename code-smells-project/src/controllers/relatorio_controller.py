@@ -1,4 +1,3 @@
-"""Controller de relatórios."""
 from flask import jsonify
 
 
