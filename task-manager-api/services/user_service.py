@@ -1,91 +1,75 @@
-"""Regras de negócio de usuários e autenticação de login (T04, T14)."""
-import re
+import logging
 
-from database import db
-from errors import ConflictError, ForbiddenError, NotFoundError, UnauthorizedError, ValidationError
+from constants import ADMIN_ROLE, DEFAULT_ROLE, EMAIL_TAKEN_MESSAGE, USER_NOT_FOUND_MESSAGE
+from errors import ConflictError, ForbiddenError, NotFoundError
 from models.user import User
-from constants import EMAIL_REGEX, MIN_PASSWORD_LENGTH, USER_ROLES
+
+logger = logging.getLogger(__name__)
+
+PRIVILEGED_FIELDS = frozenset({"role", "active"})
+FORBIDDEN_MESSAGE = "Acesso negado"
 
 
 class UserService:
-    def __init__(self, user_repository, task_repository, auth_service):
+    def __init__(self, user_repository, task_repository):
         self._users = user_repository
         self._tasks = task_repository
-        self._auth = auth_service
 
-    def list_users(self):
-        users = self._users.list_all()
-        counts = self._users.task_counts()
-        return [(user, counts.get(user.id, 0)) for user in users]
+    def list_users(self, limit=None, offset=0):
+        return self._users.list_with_task_count(limit, offset)
 
-    def get_user(self, user_id):
+    def get(self, user_id):
         user = self._users.get(user_id)
-        if not user:
-            raise NotFoundError('Usuário não encontrado')
+        if user is None:
+            raise NotFoundError(USER_NOT_FOUND_MESSAGE)
         return user
 
-    def get_user_with_tasks(self, user_id):
-        user = self.get_user(user_id)
+    def get_with_tasks(self, user_id):
+        user = self.get(user_id)
         return user, self._tasks.list_by_user(user_id)
 
-    def create_user(self, validated):
-        if self._users.get_by_email(validated['email']):
-            raise ConflictError('Email já cadastrado')
-        if validated['role'] not in USER_ROLES:
-            raise ValidationError('Role inválido')
-        user = User()
-        user.name = validated['name']
-        user.email = validated['email']
-        user.set_password(validated['password'])
-        user.role = validated['role']
-        self._users.add(user)
-        db.session.commit()
+    def get_user_tasks(self, user_id):
+        return self.get_with_tasks(user_id)[1]
+
+    def ensure_email_available(self, email, exclude_id=None):
+        """Checagem prévia, só para a mensagem; a garantia é o UNIQUE no banco (UserRepository)."""
+        existing = self._users.get_by_email(email)
+        if existing is not None and existing.id != exclude_id:
+            raise ConflictError(EMAIL_TAKEN_MESSAGE)
+
+    def create(self, fields, actor=None):
+        # Cadastro público grava o perfil padrão; só um admin autenticado escolhe o perfil (T14).
+        role = fields["role"] if actor is not None and actor.is_admin() else DEFAULT_ROLE
+        return self._create(fields, role)
+
+    def create_admin(self, fields):
+        return self._create(fields, ADMIN_ROLE)
+
+    def _create(self, fields, role):
+        user = User(name=fields["name"], email=fields["email"], role=role)
+        user.set_password(fields["password"])
+        user = self._users.add(user)
+        logger.info("Usuário criado: %s - %s", user.id, user.name)
         return user
 
-    def update_user(self, user_id, data):
-        user = self.get_user(user_id)
-        if not data:
-            raise ValidationError('Dados inválidos')
+    def authorize_update(self, actor, user, requested_fields):
+        """Só o próprio usuário altera a própria conta; perfil, estado e contas alheias exigem admin."""
+        if actor.is_admin():
+            return
+        if actor.id != user.id or PRIVILEGED_FIELDS & set(requested_fields):
+            raise ForbiddenError(FORBIDDEN_MESSAGE)
 
-        if 'name' in data:
-            user.name = data['name']
-        if 'email' in data:
-            if not re.match(EMAIL_REGEX, data['email']):
-                raise ValidationError('Email inválido')
-            existing = self._users.get_by_email(data['email'])
-            if existing and existing.id != user_id:
-                raise ConflictError('Email já cadastrado')
-            user.email = data['email']
-        if 'password' in data:
-            if len(data['password']) < MIN_PASSWORD_LENGTH:
-                raise ValidationError('Senha muito curta')
-            user.set_password(data['password'])
-        if 'role' in data:
-            if data['role'] not in USER_ROLES:
-                raise ValidationError('Role inválido')
-            user.role = data['role']
-        if 'active' in data:
-            user.active = data['active']
+    def update(self, user, fields):
+        for name, value in fields.items():
+            if name == "password":
+                user.set_password(value)
+            else:
+                setattr(user, name, value)
+        return self._users.save(user)
 
-        db.session.commit()
-        return user
-
-    def delete_user(self, user_id):
-        user = self.get_user(user_id)
+    def delete(self, actor, user_id):
+        user = self.get(user_id)
+        if not actor.is_admin() and actor.id != user.id:
+            raise ForbiddenError(FORBIDDEN_MESSAGE)
         self._users.delete(user)
-        db.session.commit()
-
-    def login(self, data):
-        if not data:
-            raise ValidationError('Dados inválidos')
-        email = data.get('email')
-        password = data.get('password')
-        if not email or not password:
-            raise ValidationError('Email e senha são obrigatórios')
-        user = self._users.get_by_email(email)
-        if not user or not user.check_password(password):
-            raise UnauthorizedError('Credenciais inválidas')
-        if not user.active:
-            raise ForbiddenError('Usuário inativo')
-        db.session.commit()  # persiste eventual re-hash de senha legada
-        return user, self._auth.issue_token(user)
+        logger.info("Usuário deletado: %s", user_id)

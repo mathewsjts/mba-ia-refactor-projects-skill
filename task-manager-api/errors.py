@@ -1,4 +1,4 @@
-"""Erros de domínio, traduzidos para HTTP pelo middleware central (T10)."""
+"""Erros de domínio; o middleware central os traduz para `{"error": ...}` com o status de cada classe (T10)."""
 
 
 class AppError(Exception):
