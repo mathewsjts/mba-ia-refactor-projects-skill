@@ -142,12 +142,13 @@ Um valor numérico garantido pelo conversor da rota (`<int:id>`) reduz a explora
 - Token de autenticação falso ou não assinado: `'fake-jwt-token-' + id`, token igual ao id, ausência de verificação de token nas demais rotas.
 - Rota anônima de criação ou atualização que aceita `role`/`tipo`/`is_admin`, `password`/`senha` ou `active`/`ativo` vindos do corpo. Qualquer um se promove a admin ou troca a senha de outra conta.
 - Token aceito sem recarregar o usuário: conta apagada ou desativada continua autorizada.
+- **Projeto com login:** liste todas as rotas `POST`/`PUT`/`PATCH`/`DELETE` do inventário. Cada uma que responde sem token, ou que aceita o token de qualquer conta sem conferir dono ou perfil, é ocorrência. Por exemplo: `PUT /tasks/<id>` anônimo que troca título, status e `user_id`; `DELETE /tasks/<id>` de outra conta; `PUT /categories/<id>` por usuário comum. Para achar o dono, procure colunas `user_id`/`usuario_id`/`owner_id`/`author_id` no model. Sem essa coluna, o recurso é compartilhado.
 
 **Severidade:** CRITICAL para execução arbitrária, destruição em massa ou dados financeiros. HIGH quando a autenticação é falsa ou inexistente, mas o dano possível é limitado a leitura de dados não sensíveis.
 
 **Impacto:** qualquer cliente anônimo pode apagar o banco, exfiltrar tudo ou assumir contas.
 
-**Nota de contrato:** em CRITICAL ou HIGH, a Fase 3 aplica a T14 por completo, rota a rota, e cada mudança é declarada como Breaking Change. Rota que executa SQL ou código enviado pelo cliente, ou que destrói dados em massa, é **removida** — protegê-la com token mantém a capacidade de exfiltrar ou destruir o banco e não corrige o finding. As demais rotas privilegiadas ou destrutivas passam a exigir credencial, incluindo `POST`/`PUT` que gravam perfil, senha ou estado da conta. Assinar o token falso sem exigi-lo nas rotas deixa o impacto intacto e não corrige o finding.
+**Nota de contrato:** em CRITICAL ou HIGH, a Fase 3 aplica a T14 por completo, rota a rota, e cada mudança é declarada como Breaking Change. Rota que executa SQL ou código enviado pelo cliente, ou que destrói dados em massa, é **removida** — protegê-la com token mantém a capacidade de exfiltrar ou destruir o banco e não corrige o finding. As demais rotas privilegiadas ou destrutivas passam a exigir credencial, incluindo `POST`/`PUT` que gravam perfil, senha ou estado da conta. Em projeto com login, toda rota de escrita exige token e confere dono ou admin (T14, linha "Rota de escrita"). Proteger só o `DELETE` e deixar o `PUT` aberto mantém o impacto, porque reescrever todos os registros destrói os dados do mesmo jeito. Assinar o token falso sem exigi-lo nas rotas deixa o impacto intacto e não corrige o finding.
 
 ---
 

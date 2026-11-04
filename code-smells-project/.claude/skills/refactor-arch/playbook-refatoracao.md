@@ -720,7 +720,7 @@ def is_overdue(self, now=None):
 1. Valide **tudo** antes da primeira escrita.
 2. Envolva as escritas relacionadas numa única transação com rollback em qualquer erro. "Relacionadas" inclui as escritas auxiliares do fluxo, como criar o usuário dentro do checkout.
    - Com uma conexão compartilhada e uma fila de transações (Node `sqlite3`), **nenhuma** escrita roda fora da fila. Uma escrita solta cai no meio da transação de outra requisição e some no `ROLLBACK` dela, e o id já devolvido é reaproveitado pelo próximo `INSERT`.
-   - Efeitos externos irreversíveis, como cobrança e e-mail, vêm depois de todas as validações. Se uma escrita ainda puder falhar depois do efeito externo, registre no relatório o risco de cobrança sem registro.
+   - Efeitos externos irreversíveis, como cobrança e e-mail, vêm depois de todas as validações. Se uma escrita ainda puder falhar depois do efeito externo, registre o risco (ex.: cliente cobrado sem matrícula) na seção `Riscos residuais` do relatório, já na Fase 2, com a mitigação recomendada (idempotência, estorno ou registro pendente antes da cobrança). Um risco citado só no README ou só na saída da Fase 3 não conta como registrado.
 3. Troque "ler, verificar e depois escrever" por uma escrita condicional (`UPDATE ... SET estoque = estoque - ? WHERE id = ? AND estoque >= ?`) seguida da checagem de linhas afetadas (`rowcount`, `changes`, `affectedRows`). **Obrigatório** sempre que o finding citar checagem seguida de escrita, corrida ou saldo/estoque negativo — um servidor HTTP atende requisições em paralelo, então há concorrência por padrão.
    - A checagem prévia (passo 1) pode continuar no service, para responder "não encontrado" e a mensagem de erro original. Ela **não** garante nada: entre a leitura e a escrita outra requisição pode consumir o saldo. A garantia é a condição no `WHERE`, dentro da transação.
    - `with conn:` / `BEGIN ... COMMIT` **sozinho não** impede a corrida: a leitura da checagem prévia acontece fora da transação.
@@ -1429,9 +1429,10 @@ Aplica-se ao AP-05 em CRITICAL **e** em HIGH (regra 3 do `SKILL.md`). O finding 
 | Destruição em massa (reset de banco) | **Remover** da API; se for útil em desenvolvimento, oferecer como comando de linha de comando. |
 | Leitura ou gestão administrativa (relatórios financeiros, remoção de usuários) sem login no projeto | **Proteger** com middleware de credencial administrativa lida da configuração (`X-Admin-Token`). |
 | Rota de criação ou atualização que aceita campo de perfil, credencial ou estado da conta (`role`, `tipo`, `is_admin`, `password`/`senha`, `active`/`ativo`) | **Proteger** o campo, mesmo que a rota não seja destrutiva: escrever esses campos é operação privilegiada. Cadastro público ignora o campo de perfil e grava o perfil padrão. Atualização exige token; só o próprio usuário altera a própria senha, e só um admin altera perfil, estado ou dados de outra conta. Deixar a rota aberta "para preservar o contrato" deixa o finding **não corrigido**: um anônimo se promove a admin ou toma a conta de outra pessoa. |
-| Token de autenticação falso (o projeto tem login) | Duas partes, ambas obrigatórias: (a) emitir token assinado com biblioteca já disponível (`itsdangerous` vem com o Flask; `crypto.createHmac` no Node), mantendo a mesma chave JSON na resposta de login; (b) **exigir** esse token (`Authorization: Bearer <token>`) nas rotas destrutivas — no mínimo todo `DELETE` — e nas administrativas. Cada rota protegida é um `BC-xx` declarado. Só (a) deixa o finding **parcial**, o que é proibido para finding de segurança. |
+| Token de autenticação falso (o projeto tem login) | Duas partes, ambas obrigatórias: (a) emitir token assinado com biblioteca já disponível (`itsdangerous` vem com o Flask; `crypto.createHmac` no Node), mantendo a mesma chave JSON na resposta de login; (b) **exigir** esse token (`Authorization: Bearer <token>`) em toda rota de escrita (linha seguinte) e nas administrativas. Cada rota protegida é um `BC-xx` declarado. Só (a) deixa o finding **parcial**, o que é proibido para finding de segurança. |
+| Rota de escrita (`POST`, `PUT`, `PATCH`, `DELETE`) num projeto com login | **Proteger** com o token do login **e** conferir quem escreve. Recurso com dono (coluna `user_id`, `usuario_id`, `owner_id`, `author_id`…): criar exige token, e o dono gravado é quem chama, ou outro só se quem chama for admin. Alterar ou remover exige ser o dono ou admin; os demais recebem 403. Recurso compartilhado sem dono (catálogo, categorias, configurações): só admin escreve. `PUT` que sobrescreve campos é tão destrutivo quanto `DELETE`: um anônimo que reescreve todos os registros destrói os dados do mesmo jeito. Ficam públicos só o login, o cadastro público e os fluxos que o relatório declara públicos, com o motivo (ex.: checkout de visitante num projeto sem login). |
 
-Classifique **cada rota** do finding numa linha da tabela e aplique a ação daquela linha; um mesmo finding pode ter rotas removidas e rotas protegidas. A coluna "Ação" é obrigatória: "Remover" nunca é trocado por "Proteger" — uma rota de SQL arbitrário atrás de `X-Admin-Token` continua capaz de exfiltrar ou destruir o banco com uma credencial vazada, e o finding fica **não corrigido**. Remover significa apagar a rota, o método do controller e o método do model/service que executa a entrada do cliente; nenhum código que execute SQL recebido permanece no projeto.
+Classifique **cada rota** do finding numa linha da tabela e aplique a ação daquela linha; um mesmo finding pode ter rotas removidas e rotas protegidas. Em projeto com login, "cada rota" quer dizer **cada rota de escrita do inventário da Fase 1**, não só as que o legado já tratava como sensíveis: monte a tabela rota → linha da T14 → quem pode escrever, e toda rota que ficar pública leva o motivo. A coluna "Ação" é obrigatória: "Remover" nunca é trocado por "Proteger" — uma rota de SQL arbitrário atrás de `X-Admin-Token` continua capaz de exfiltrar ou destruir o banco com uma credencial vazada, e o finding fica **não corrigido**. Remover significa apagar a rota, o método do controller e o método do model/service que executa a entrada do cliente; nenhum código que execute SQL recebido permanece no projeto.
 
 **Python — depois (remoção)**
 
@@ -1550,6 +1551,63 @@ bp.add_url_rule(
 ```
 
 Use a chave de erro que o projeto já usa (`error`, `erro`, texto puro).
+
+**Python — depois (dono ou admin nas rotas de escrita)**
+
+```python
+# services/authorization.py — regra de quem escreve, fora do HTTP
+from errors import ForbiddenError
+
+
+def ensure_owner_or_admin(actor, owner_id):
+    if not actor.is_admin() and actor.id != owner_id:
+        raise ForbiddenError("Acesso negado")
+
+
+def ensure_admin(actor):
+    if not actor.is_admin():
+        raise ForbiddenError("Acesso negado")
+```
+
+```python
+# services/task_service.py
+def create(self, actor, fields):
+    fields.setdefault("user_id", actor.id)            # sem dono no corpo: quem chama é o dono
+    ensure_owner_or_admin(actor, fields["user_id"])   # criar para outra conta: só admin
+    ...
+
+def update(self, actor, task, fields):
+    ensure_owner_or_admin(actor, task.user_id)        # dono atual
+    if "user_id" in fields:
+        ensure_owner_or_admin(actor, fields["user_id"])  # transferir para outra conta: só admin
+    ...
+
+def delete(self, actor, task_id):
+    task = self.get(task_id)                          # 404 antes do 403, como no legado
+    ensure_owner_or_admin(actor, task.user_id)
+    ...
+```
+
+```python
+# routes/task_routes.py — toda escrita passa pelo require_auth
+auth = require_auth(auth_service, user_repository)
+bp.add_url_rule("/tasks", "create_task", auth(controller.create), methods=["POST"])
+bp.add_url_rule("/tasks/<int:task_id>", "update_task", auth(controller.update), methods=["PUT"])
+bp.add_url_rule("/tasks/<int:task_id>", "delete_task", auth(controller.delete), methods=["DELETE"])
+# recurso compartilhado: categories → ensure_admin(g.user) no service
+```
+
+A ordem das checagens preserva o contrato dos erros: token (401) → recurso existe (404) → permissão (403) → validação do corpo (400). A checagem de dono fica no service, não no decorator, porque depende do recurso carregado.
+
+**Conferência** (registre em `.refactor-arch/conformidade.md`, uma linha por rota de escrita):
+
+| Rota | Linha da T14 | Evidência esperada no código novo |
+|---|---|---|
+| `POST /recurso` | escrita com login | rota envolvida pelo middleware de token; o dono gravado vem de `g.user`, ou outro dono só se `is_admin()` |
+| `PUT`/`PATCH /recurso/<id>` | escrita com login | middleware de token + `ensure_owner_or_admin` com o dono **atual**; troca de dono conferida de novo |
+| `DELETE /recurso/<id>` | escrita com login | middleware de token + `ensure_owner_or_admin` |
+| escrita em recurso compartilhado | escrita com login | middleware de token + `ensure_admin` |
+| rota que ficou pública | — | motivo declarado no relatório (login, cadastro público, fluxo público) |
 
 **JavaScript — depois (proteção)**
 

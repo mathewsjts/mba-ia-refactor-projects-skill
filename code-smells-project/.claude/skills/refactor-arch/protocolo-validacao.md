@@ -34,6 +34,7 @@ Tudo fica em `.refactor-arch/`, na raiz do projeto:
 | `conformidade.md` | Mapa finding → transformação → passo → arquivo:linha (Fase 3) |
 | `concorrencia.sh` / `concorrencia.txt` | Prova de concorrência das escritas condicionais da T07 e seu resultado |
 | `tipos.sh` / `tipos.txt` | Entradas de tipo inválido por rota de escrita e o status de cada uma |
+| `autorizacao.sh` / `autorizacao.txt` | Matriz de autorização das rotas de escrita (anônimo, outra conta, dono, admin) e o status de cada caso |
 | `validacao.md` | Evidências consolidadas da Fase 3 |
 
 ---
@@ -115,8 +116,8 @@ Copie o modelo e preencha apenas a seção de requisições.
 - **Paths entre aspas simples.** Shells como o zsh expandem `?` e `*` e abortam o comando.
 - Todo corpo JSON é enviado com `Content-Type: application/json` (o modelo já faz isso).
 - **Rotas administrativas** enviam `-H "X-Admin-Token: ${ADMIN_TOKEN:-}"` nas duas execuções. O original ignora o header; a versão protegida (T14) o exige.
-- **Projeto com login:** logo depois do `call POST '/login'` com credenciais válidas do seed, guarde o token da resposta (`TOKEN="$(token_from_body)"`) e envie `-H "Authorization: Bearer ${TOKEN:-}"` em toda rota destrutiva (`DELETE`) e administrativa, nas duas execuções. O original ignora o header; a versão protegida (T14) o exige.
-- **Prova de proteção:** para cada rota que a T14 vai proteger, inclua uma chamada **anônima** com id inexistente (`/recurso/999999`, sem header). No baseline ela responde 404 sem apagar nada; depois, 401 — divergência declarada no `BC-xx` correspondente.
+- **Projeto com login:** logo depois do `call POST '/login'` com credenciais válidas do seed, guarde o token da resposta (`TOKEN="$(token_from_body)"`) e envie `-H "Authorization: Bearer ${TOKEN:-}"` em **toda rota de escrita** (`POST`, `PUT`, `PATCH`, `DELETE`) e administrativa, nas duas execuções — exceto login e cadastro público. Use o token de um admin do seed, para que o caminho feliz continue 2xx depois da checagem de dono. O original ignora o header; a versão protegida (T14) o exige.
+- **Prova de proteção:** para cada rota que a T14 vai proteger, inclua uma chamada **anônima** e inofensiva, sem header: id inexistente (`/recurso/999999`) em `PUT`/`PATCH`/`DELETE`, corpo vazio `{}` em `POST`. No baseline ela responde 404 ou 400 sem gravar nada; depois, 401 — divergência declarada no `BC-xx` correspondente.
 - **Prova de remoção:** cada rota que a T14 vai remover (execução de SQL/código do cliente, destruição em massa) continua no `smoke.sh` com uma chamada inofensiva — só leitura, ex.: `{"sql":"SELECT 1"}` — enviando o mesmo header administrativo das demais. No baseline ela responde como antes; depois, 404 — divergência declarada no `BC-xx` correspondente. A rota de destruição em massa continua sendo a última chamada.
 
 ```bash
@@ -336,6 +337,23 @@ O `smoke.sh` só manda corpo vazio e campo ausente. Gere `.refactor-arch/tipos.s
 
 Qualquer 5xx deixa o finding de validação (AP-14) **não corrigido**. Corrija e volte a B2. Registre a tabela caso → status em `validacao.md`.
 
+### B6.4. Matriz de autorização (T14, projeto com login)
+
+O `smoke.sh` usa o token de um admin, então não prova que uma conta comum é barrada. Gere `.refactor-arch/autorizacao.sh`. Ele roda só depois da refatoração e não é comparado com o baseline, porque o original não tem autorização. Parta do estado limpo (B2) e obtenha dois tokens: o de um **admin** e o de um **usuário comum** (do seed ou criado pelo cadastro público). Para **cada rota de escrita** do inventário, envie:
+
+| Caso | Esperado |
+|---|---|
+| Sem token | 401 |
+| Token adulterado (`<token>x`) | 401 |
+| Usuário comum sobre recurso de **outra** conta (`PUT`/`PATCH`/`DELETE`), ou criando com dono = outra conta | 403 |
+| Usuário comum escrevendo em recurso compartilhado (sem dono) | 403 |
+| Usuário comum sobre o **próprio** recurso | 2xx |
+| Admin sobre recurso de outra conta | 2xx |
+
+Antes de cada caso destrutivo, crie o recurso que ele consome, para que um caso não dependa do anterior. Grave a tabela rota → caso → status em `autorizacao.txt` e em `validacao.md`. Rotas declaradas públicas no relatório entram na tabela com `pública: <motivo>`.
+
+Qualquer 2xx onde se espera 401/403, ou 5xx em qualquer caso, deixa o AP-05 **não corrigido**: aplique a T14 na rota e volte a B2. Projeto sem login: registre `N/A` com o motivo.
+
 ### B7. Encerrar e registrar
 
 1. Encerre a aplicação como em A7 e confirme a porta livre.
@@ -378,6 +396,12 @@ Unicidade: <rota> com <N> requisições do mesmo valor → <registros no banco> 
 
 ## Entradas de tipo inválido
 Casos: <N> | 4xx: <X> | 5xx: <0 | lista>
+
+## Matriz de autorização
+Rotas de escrita: <N> | Casos: <M> | Divergências do esperado: <0 | lista> | N/A: <motivo>
+
+## Desvios do plano aprovado
+<aprovado → feito, motivo, evidência | Nenhum>
 
 ## Estado deixado
 Porta <porta> livre. Bancos originais preservados em `.refactor-arch/db-backup/`.
