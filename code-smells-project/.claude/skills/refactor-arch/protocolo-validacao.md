@@ -277,7 +277,7 @@ Exemplos típicos de regressão: 404 virou 500 porque o handler de `Exception` c
 3. **Situações "Remover" da T14.** Confirme que nenhuma rota removida continua registrada (liste as rotas do app, ex.: `app.url_map` no Flask ou a tabela de rotas do Express) e que nenhum código executa entrada do cliente: `grep -rnE "execute\((sql|query|dados|data|body)\b|eval\(|exec\(|child_process" <fontes>`. Uma ocorrência — mesmo atrás de credencial — mantém o finding AP-05 **não corrigido**.
 4. **Escrita não atômica (AP-09).** A leitura de saldo pode ter ido para o service e a escrita para o model — por isso a busca é pela escrita, não pelo par:
    ```bash
-   grep -rniE "SET[[:space:]]+[[:alnum:]_]+[[:space:]]*=[[:space:]]*[[:alnum:]_]+[[:space:]]*-" <fontes>   # sem retrorreferência: funciona em GNU, BSD e ugrep
+   grep -rniE "SET[[:space:]]+[[:alnum:]_]+[[:space:]]*=[[:space:]]*[[:alnum:]_]+[[:space:]]*-" <fontes>   # sem retrorreferência (o ugrep rejeita \1 com -E)
    ```
    Leia cada ocorrência: o `WHERE` tem `AND <campo> >= ?` e as linhas afetadas (`rowcount`, `changes`, `affectedRows`) são checadas logo depois, levantando o erro de negócio? Se não, o AP-09 está **não corrigido**, mesmo dentro de `with conn:` / `BEGIN ... COMMIT`.
 5. Cada ocorrência é corrigida ou justificada como falso positivo em `validacao.md`.

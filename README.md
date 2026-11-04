@@ -225,17 +225,17 @@ Todos surgiram ao executar os projetos originais durante a construção da skill
 
 ## C) Resultados
 
-Na primeira rodada a skill foi executada uma vez em cada projeto, com a mesma cópia byte-idêntica e sem ajustes entre as execuções. Depois das revisões, a skill foi ajustada duas vezes (ver abaixo) e os projetos 3 e 1 foram reexecutados do zero, a partir do código legado, com a nova versão da skill — que continua byte-idêntica nas três pastas. Cada execução foi feita com `claude -p "/refactor-arch"` e, depois da pausa da Fase 2, aprovada retomando a mesma sessão com `s`. Os números abaixo foram conferidos de forma independente: cada aplicação refatorada foi subida com banco limpo, `smoke.sh` foi reexecutado e o resultado foi comparado com o baseline gravado antes da refatoração.
+Na primeira rodada a skill foi executada uma vez em cada projeto, com a mesma cópia byte-idêntica e sem ajustes entre as execuções. Depois das revisões, a skill foi ajustada três vezes (ver abaixo). O projeto 3 foi reexecutado do zero uma vez e o projeto 1 duas vezes, sempre a partir do código legado e com a nova versão da skill — que continua byte-idêntica nas três pastas. Cada execução foi feita com `claude -p "/refactor-arch"` e, depois da pausa da Fase 2, aprovada retomando a mesma sessão com `s`. Os números abaixo foram conferidos de forma independente: cada aplicação refatorada foi subida com banco limpo, `smoke.sh` foi reexecutado e o resultado foi comparado com o baseline gravado antes da refatoração.
 
 ### Resumo dos relatórios de auditoria
 
 | Projeto | Análise manual | CRITICAL | HIGH | MEDIUM | LOW | Total | Corrigidos na Fase 3 | Relatório |
 |---|---|---|---|---|---|---|---|---|
-| `code-smells-project` | 17 | 6 | 5 | 6 | 5 | **22** | 21/22 — F-16 (paginação de `/pedidos`) parcial | [audit-project-1.md](reports/audit-project-1.md) |
+| `code-smells-project` | 17 | 6 | 6 | 5 | 5 | **22** | 22/22 — cada um com os passos da transformação conferidos em `conformidade.md` | [audit-project-1.md](reports/audit-project-1.md) |
 | `ecommerce-api-legacy` | 16 | 5 | 8 | 4 | 4 | **21** | 20/21 — F-16 (paginação) parcial | [audit-project-2.md](reports/audit-project-2.md) |
 | `task-manager-api` | 16 | 3 | 3 | 7 | 4 | **17** | 17/17 | [audit-project-3.md](reports/audit-project-3.md) |
 
-Os dois findings parciais são de paginação (MEDIUM, não são de segurança) e foram deixados assim de propósito, pela regra de contrato da skill. No projeto 2, paginação obrigatória mudaria o formato da resposta. No projeto 1, a paginação opcional (`limit`/`offset`) foi aplicada a `/produtos` e `/usuarios`, mas não a `/pedidos`: a listagem vem de um `LEFT JOIN` pedido × itens, e um `LIMIT` sobre as linhas do JOIN cortaria os itens de um pedido no meio.
+O único finding parcial é de paginação no projeto 2 (MEDIUM, não é de segurança) e foi deixado assim de propósito, pela regra de contrato da skill: paginação obrigatória mudaria o formato da resposta. No projeto 1, a execução anterior também deixava a paginação de `/pedidos` parcial, porque um `LIMIT` sobre as linhas do `LEFT JOIN` pedido × itens cortaria os itens de um pedido no meio. A reexecução resolveu isso paginando por uma subconsulta de ids (`WHERE p.id IN (SELECT id FROM pedidos ORDER BY id LIMIT ? OFFSET ?)`).
 
 **Ajuste após a revisão.** Na primeira execução do projeto 3, o F-04 (AP-05, HIGH) terminou parcial: a skill assinou o token `fake-jwt-token-<id>`, mas `DELETE /tasks`, `/users` e `/categories` continuaram abertos a clientes anônimos, porque a regra 3 do `SKILL.md` só permitia quebrar contrato em finding CRITICAL. A refatoração não eliminava o impacto que a própria auditoria apontava. A regra passou a cobrir findings de segurança CRITICAL **ou HIGH**, e um finding de segurança não pode mais terminar parcial por motivo de contrato. O `template-relatorio.md`, o catálogo (AP-05), a T14 do playbook (token do login exigido como `Authorization: Bearer` nas rotas destrutivas, com exemplo de `require_auth`) e o protocolo de validação (captura do token no `smoke.sh` e chamada anônima de prova por rota protegida) foram ajustados juntos. Na reexecução, o relatório declarou BC-05 a BC-07 antes da confirmação, e a Fase 3 aplicou a T14: as três rotas `DELETE` respondem 401 sem token válido e 200 com o token emitido pelo `POST /login`.
 
@@ -248,6 +248,24 @@ Os dois findings parciais são de paginação (MEDIUM, não são de segurança) 
 
 Na reexecução do zero, o relatório declarou a remoção das duas rotas (BC-01 e BC-02) antes da confirmação. Na Fase 3, `admin_controller.py` e `admin_auth.py` deixaram de existir, `admin_model.py` ficou só com o reset usado pelo comando de linha e `ADMIN_TOKEN` saiu da configuração. O projeto 2 não precisou ser reexecutado: seu AP-05 cobre um relatório financeiro e a remoção de usuários, casos que a T14 manda **proteger** (BC-01/BC-02 com `X-Admin-Token`).
 
+**Terceiro ajuste (projeto 1).** A revisão apontou que o F-09 (AP-09, HIGH) foi dado como corrigido sem estar. A auditoria dizia que "a corrida entre checagem e decremento permite estoque negativo", mas no código gerado o `PedidoService` conferia o estoque fora da transação, e o `PedidoModel.criar` fazia `estoque = estoque - ?` sem `AND estoque >= ?`, embora a docstring do método prometesse essa condição. A skill aplicou os passos 1 e 2 da T07 (validar antes, transação) e pulou o passo 3 (escrita condicional com checagem de linhas afetadas), que é o único que fecha a corrida. A falha passou pela validação por quatro brechas, uma atrás da outra:
+
+- **A Fase 3 não exigia a transformação inteira.** O `SKILL.md` listava as transformações por camada (`models — T01, T03, T05, T07…`) sem mandar percorrer os passos numerados de cada uma. O passo 3 da T07 ainda estava escrito como condicional ("quando houver concorrência").
+- **O comentário substituiu o código.** O `UPDATE` foi movido do legado quase sem mudança ("mover antes de melhorar"), e a docstring foi escrita já descrevendo a T07 completa. Nenhuma regra mandava confrontar o comentário com o código.
+- **A varredura B6 não enxergava a corrida depois da refatoração.** O sinal do AP-09 era "ler o estoque e depois decrementar em outra instrução". Com a leitura no service e a escrita no model, o par nunca aparece no mesmo arquivo, e a presença de `with conn:` apagava o outro sinal.
+- **O smoke test não testa concorrência.** Ele dispara uma requisição por vez, então o pedido acima do estoque respondia o mesmo `400` antes e depois.
+
+Ajustes feitos (as três cópias da skill continuam byte-idênticas):
+
+- **Fase 3 do `SKILL.md`:** cada finding aplica **todos** os passos da transformação, registrados um por linha em `.refactor-arch/conformidade.md` (`finding → Txx → passo → arquivo:linha`, ou `N/A` com motivo). Um finding só é corrigido com todos os passos aplicados. Docstring ou comentário que promete uma garantia precisa apontar para o código que a cumpre. O quadro final ganhou as linhas "Passos do playbook conferidos" e "Prova de concorrência".
+- **T07 do playbook:** o passo 3 passou a ser obrigatório quando o finding cita checagem seguida de escrita. Ficou explícito que a transação sozinha não impede a corrida, e o erro de linhas afetadas = 0 repete o da checagem prévia, para manter o contrato. Ganhou também uma tabela de conferência por passo e um exemplo em JavaScript.
+- **Catálogo (AP-09):** a busca procura o decremento (`SET x = x - …`) em vez do par leitura/escrita, e um bloco transacional sem condição no `WHERE` deixou de valer como falso positivo.
+- **Protocolo de validação:** B6 ganhou o grep do decremento (sem retrorreferência: o `grep` do ambiente de execução era o ugrep, que rejeita `\1` com `-E`; o padrão novo foi testado no ugrep e no `/usr/bin/grep` do macOS). B6.1 confere `conformidade.md` contra o código, linha a linha, e confronta comentários com o código. B6.2 é uma prova de concorrência: N pedidos paralelos contra estoque S, com o invariante "estoque ≥ 0 e sucessos ≤ S".
+
+Antes de reexecutar, a prova de concorrência foi rodada contra o código da entrega anterior. Com estoque 3 e 25 pedidos paralelos, três rodadas aceitaram 4, 5 e 7 pedidos, e o estoque terminou em −1, −2 e −4: o problema apontado na revisão se reproduz. Na reexecução do zero, o relatório já recomendou "T07 (passos 1, 2 e 3)" no F-09. A Fase 3 gravou o decremento como `UPDATE produtos SET estoque = estoque - ? WHERE id = ? AND estoque >= ?`, com `rowcount == 0` levantando "Estoque insuficiente para <nome>" dentro de `BEGIN IMMEDIATE` ([pedido_model.py:46-62](code-smells-project/src/models/pedido_model.py#L46-L62)). `conformidade.md` registra 74 passos para os 22 findings. Na mesma prova, só 3 pedidos foram aceitos e o estoque terminou em 0, com os demais recebendo o mesmo `400` do caminho sequencial.
+
+Nessa reexecução, a auditoria também aplicou a regra 3 por inteiro no F-05. Além de remover `/admin/query` e `/admin/reset-db`, o `POST /login` passou a emitir token assinado (`itsdangerous`), e as rotas que alteram o catálogo, criam ou listam pedidos e expõem usuários ou o relatório exigem `Authorization: Bearer` (BC-02 a BC-12). Na execução anterior, `DELETE /produtos/<id>` e `PUT /pedidos/<id>/status` continuavam abertos a anônimos. Os Breaking Changes foram declarados no relatório e aprovados antes da Fase 3.
+
 ### Estrutura antes e depois
 
 **Projeto 1 — `code-smells-project`** (monolito → estrutura canônica em `src/`, entry point mantido na raiz)
@@ -255,17 +273,17 @@ Na reexecução do zero, o relatório declarou a remoção das duas rotas (BC-01
 ```
 ANTES                                   DEPOIS
 code-smells-project/                    code-smells-project/
-├── app.py          # app, config,      ├── app.py                  # entry point: Settings.from_env() + create_app()
+├── app.py          # app, config,      ├── app.py                  # entry point: create_app() + HOST/PORT/DEBUG da config
 │                   # rotas, admin      ├── .env.example
 ├── controllers.py  # HTTP + validação  └── src/
-│                   # + notificações        ├── app.py              # composition root (injeção de dependências)
+│                   # + notificações        ├── app.py              # composition root (injeção de dependências, CLI reset-db)
 ├── models.py       # SQL de 4 domínios     ├── errors.py
 │                   # + regras              ├── config/settings.py
-├── database.py     # conexão global,       ├── models/             # database, passwords, produto, usuario, pedido, admin (reset só via CLI)
-│                   # schema, seed          ├── services/           # produto, usuario, pedido, relatorio, notificacao, meta
+├── database.py     # conexão global,       ├── models/             # database (transação BEGIN IMMEDIATE), passwords, produto, usuario, pedido, admin
+│                   # schema, seed          ├── services/           # produto, usuario, auth (token), pedido, relatorio, notificacao, saude
 └── requirements.txt                        ├── controllers/        # 5 controllers + validators
-                                            ├── views/              # routes.py (sem /admin), serializers.py
-                                            └── middlewares/        # error_handler.py
+                                            ├── views/              # routes.py (sem /admin, com auth), serializers.py
+                                            └── middlewares/        # error_handler.py, auth.py (Bearer / perfil admin)
 
 removidos: POST /admin/query e POST /admin/reset-db (T14 "Remover"); o reset virou `flask --app app reset-db`
 ```
@@ -334,7 +352,8 @@ task-manager-api/                       task-manager-api/
 - [x] Error handling centralizado — `src/middlewares/error_handler.py`
 - [x] Entry point claro — `python app.py`, mesmo comando documentado
 - [x] Aplicação inicia sem erros
-- [x] Endpoints originais respondem corretamente — 23/27 idênticos; 4 divergências declaradas = BC-01 e BC-02 (`/admin/query` e `/admin/reset-db` removidas → 404), BC-03 (`/health` sem segredos) e BC-04 (`/usuarios` sem `senha`)
+- [x] Endpoints originais respondem corretamente — 32/48 idênticos; 16 divergências declaradas = BC-01 a BC-14 (`/health` sem segredos, token no login, 401 nas rotas protegidas sem token, `/admin/query` e `/admin/reset-db` removidas → 404)
+- [x] Passos do playbook conferidos — 22/22 findings, 74 passos em `conformidade.md`; prova de concorrência com estoque final 0
 
 </details>
 
@@ -402,17 +421,20 @@ task-manager-api/                       task-manager-api/
 
 Cada projeto guarda as evidências completas em `.refactor-arch/` (ignorado pelo git): `baseline.txt`, `depois.txt`, `diff.txt`, `boot-antes.log`, `boot-depois.log` e `validacao.md`.
 
-**Projeto 1** (reexecução) — `PORT=5055 PYTHONWARNINGS=default .venv/bin/python app.py`
+**Projeto 1** (segunda reexecução) — `PORT=5050 PYTHONWARNINGS=default .venv/bin/python app.py`
 
 ```
+INFO __main__: Servidor iniciado em http://127.0.0.1:5050
  * Serving Flask app 'src.app'
  * Debug mode: off
- * Running on http://127.0.0.1:5055
-127.0.0.1 - - [28/Oct/2026 17:10:16] "GET /health HTTP/1.1" 200 -
+ * Running on http://127.0.0.1:5050
+INFO werkzeug: 127.0.0.1 - - [03/Nov/2026 21:54:50] "GET /health HTTP/1.1" 200 -
 
-Smoke test: Requisições: 27 | Idênticas ao baseline: 23 | Divergências declaradas: 4 (BC-01 a BC-04) | Regressões: 0
-POST /admin/query e POST /admin/reset-db → 404 com ou sem X-Admin-Token (antes 200)
+Smoke test: Requisições: 48 | Idênticas ao baseline: 32 | Divergências declaradas: 16 (BC-01 a BC-14) | Regressões: 0
+POST /admin/query e POST /admin/reset-db → 404 com ou sem token (antes 200)
 flask --app app reset-db → "Banco de dados resetado"
+Conformidade: 22/22 findings, 74 passos conferidos (F-09 → T07 passos 1, 2 e 3)
+Prova de concorrência: estoque 3, 12 pedidos paralelos → 3×201, 9×400, 0×500, estoque final 0
 Avisos de depreciação após o replay: nenhum
 ```
 
@@ -449,6 +471,9 @@ Verificações extras feitas fora da skill, contra as aplicações refatoradas:
 | 1 | `POST /admin/query` e `POST /admin/reset-db`, com ou sem token | 200, executa o SQL / apaga o banco | 404 (rotas removidas) |
 | 1 | `grep` por `executar_query` e `execute(sql…)` em `src/` | — | nenhuma ocorrência |
 | 1 | `GET /produtos/busca?preco_min=abc` | 500 | 400 |
+| 1 | 25 `POST /pedidos` paralelos contra estoque 3 (`concorrencia.sh`) | entrega anterior: 4, 5 e 7 aceitos; estoque −1, −2, −4 | 3 aceitos, 22 × `400` "Estoque insuficiente"; estoque 0 |
+| 1 | `POST /pedidos` acima do estoque, sequencial | 400 "Estoque insuficiente para <nome>" | igual (contrato preservado) |
+| 1 | `DELETE /produtos/1` e `POST /pedidos` sem token | 200 / 201 | 401 |
 | 1 | `GET /health` | devolve `secret_key` | sem `secret_key`, `debug`, `db_path` |
 | 2 | `GET /api/admin/financial-report` sem token | 200 | 401 |
 | 2 | log do checkout | número do cartão e `pk_live_…` | nenhum dado sensível |
@@ -461,10 +486,10 @@ Verificações extras feitas fora da skill, contra as aplicações refatoradas:
 
 ### Comportamento da skill em stacks diferentes
 
-- **Três iterações.** Os critérios de aceite foram atingidos nos três projetos na primeira execução. A primeira revisão apontou que o F-04 do P3 ficou parcial pela regra de contrato; depois do ajuste na regra, uma reexecução do P3 fechou o finding sem nenhuma regressão. A segunda revisão apontou que o F-05 do P1 protegeu com token rotas que a T14 manda remover; depois do ajuste no texto da skill, uma reexecução do P1 removeu as duas rotas sem nenhuma regressão.
+- **Quatro iterações.** Os critérios de aceite foram atingidos nos três projetos na primeira execução. A primeira revisão apontou que o F-04 do P3 ficou parcial pela regra de contrato; depois do ajuste na regra, uma reexecução do P3 fechou o finding sem nenhuma regressão. A segunda revisão apontou que o F-05 do P1 protegeu com token rotas que a T14 manda remover; depois do ajuste no texto da skill, uma reexecução do P1 removeu as duas rotas sem nenhuma regressão. A terceira revisão apontou que o F-09 do P1 foi dado como corrigido sem o passo 3 da T07. A Fase 3 passou a exigir e registrar todos os passos de cada transformação, a validação passou a conferi-los e a provar a concorrência, e uma nova reexecução do P1 fechou a corrida sem nenhuma regressão.
 - **A Fase 3 se adaptou ao ponto de partida.** O monolito Flask (P1) ganhou a estrutura canônica em `src/`, mantendo `python app.py`. A God Class Express (P2) foi desmontada dentro do `src/` existente, com callbacks convertidos para `async/await` e checkout transacional. O projeto com camadas parciais (P3) evoluiu no lugar: nenhuma pasta existente foi renomeada, `controllers/` e `middlewares/` foram criados e `from app import app, db` continuou funcionando no `seed.py`.
 - **A detecção mudou conforme a stack.** No Node, a depreciação veio de `npm audit` e da árvore de dependências; no Flask/SQLAlchemy, de `LegacyAPIWarning` em runtime. O conflito da porta 5000 (AirPlay no macOS) foi detectado nos dois projetos Flask, que subiram em outra porta sem editar código.
-- **O contrato HTTP foi preservado.** Só mudaram as respostas declaradas como Breaking Changes antes da aprovação: 4 no P1, 2 no P2 e 7 no P3, todos ligados a findings de segurança (CRITICAL, e no P3 também o F-04 HIGH).
+- **O contrato HTTP foi preservado.** Só mudaram as respostas declaradas como Breaking Changes antes da aprovação: 15 no P1 (14 de rota e 1 de execução, debug e host), 2 no P2 e 7 no P3, todos ligados a findings de segurança (CRITICAL ou HIGH).
 - **Custo e duração.** Fases 1–2 levaram de 6 a 8 minutos por projeto; a Fase 3, de 8 a 16 minutos.
 
 #### Limitações observadas
@@ -474,7 +499,7 @@ Registradas para a próxima iteração da skill. Nenhuma afeta os critérios de 
 1. **Bug remanescente no P3 (persiste na reexecução):** `POST /tasks` com `"priority": "2"` ainda responde 500 (`TypeError` em `controllers/validators.py:31`), embora o finding de validação conste como corrigido. A resposta passou de HTML para `{"error": "Erro interno"}`, mas a conversão de tipo continua faltando. O smoke test não tinha um caso de tipo errado, então a validação não exercitou o problema. Correção na skill: exigir, no protocolo A4, um caso de "tipo inválido" por rota de escrita.
 2. **Import contra a regra de dependência:** em P2, `report.service.js` importa `views/serializers` (na primeira execução do P3, `services/*.py` também importava `controllers.validators`; na reexecução isso não se repetiu). Os greps da seção 3 das guidelines não verificam imports entre camadas. Correção: acrescentar um grep de "import para camada acima".
 3. **Relatório resumido no terminal:** nos três projetos o terminal mostrou uma versão condensada dos findings, apesar de o `SKILL.md` pedir o relatório completo. O arquivo gravado em `.refactor-arch/relatorio-auditoria.md` (copiado para `reports/`) está completo.
-4. **Classificação do P1:** a Fase 1 classificou o projeto como "Camadas parciais" em vez de "Monolítica". A Fase 3 ainda assim aplicou o caminho de monolito (`src/` canônico).
+4. **Classificação do P1:** nas duas primeiras execuções, a Fase 1 classificou o projeto como "Camadas parciais" em vez de "Monolítica", mas a Fase 3 aplicou o caminho de monolito (`src/` canônico) mesmo assim. Na segunda reexecução, a classificação saiu "Monolítica sem camadas".
 5. **Idioma:** a narração entre etapas do P1 saiu em inglês, embora os blocos de saída estejam em português. (Na primeira execução, o P3 também anunciou 34 requisições no smoke test com 33 no arquivo; na reexecução a contagem bateu.)
 
 ---
