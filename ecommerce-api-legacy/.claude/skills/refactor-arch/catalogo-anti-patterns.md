@@ -214,9 +214,13 @@ Um valor numérico garantido pelo conversor da rota (`<int:id>`) reduz a explora
 - `return` ou `throw` possível **entre** duas escritas (validação no meio do laço de escrita).
 - `commit()` chamado após cada passo em vez de uma vez ao final.
 - Callbacks aninhados em que cada nível grava algo e os erros dos níveis internos só respondem ao cliente, sem desfazer os anteriores.
-- Verificação seguida de escrita não atômica (ler estoque, depois decrementar em outra instrução).
+- Verificação seguida de escrita não atômica (ler estoque, depois decrementar em outra instrução) — inclusive quando a leitura está num arquivo (service) e a escrita em outro (model). Busca: `grep -rniE "SET[[:space:]]+[[:alnum:]_]+[[:space:]]*=[[:space:]]*[[:alnum:]_]+[[:space:]]*-"` e, em cada ocorrência, confira se o `WHERE` tem `AND <campo> >= ?` e se as linhas afetadas são checadas. Corrige-se com o **passo 3 da T07**, não só com a transação.
 
-**Impacto:** dados inconsistentes em qualquer falha parcial — pedido sem itens, matrícula sem pagamento, estoque decrementado para pedido inexistente.
+**Falsos positivos**
+- Decremento com `AND <campo> >= ?` no `WHERE` **e** checagem de linhas afetadas que levanta erro — já é atômico.
+- **Não** é falso positivo: escritas dentro de `with conn:` / `BEGIN ... COMMIT` cuja checagem de saldo foi feita antes, por leitura separada. A transação resolve a falha parcial, mas não a corrida.
+
+**Impacto:** dados inconsistentes em qualquer falha parcial — pedido sem itens, matrícula sem pagamento, estoque decrementado para pedido inexistente; com checagem não atômica, requisições simultâneas deixam estoque ou saldo negativo.
 
 ---
 
