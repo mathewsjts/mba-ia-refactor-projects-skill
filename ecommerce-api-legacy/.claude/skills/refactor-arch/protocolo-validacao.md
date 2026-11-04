@@ -33,6 +33,7 @@ Tudo fica em `.refactor-arch/`, na raiz do projeto:
 | `relatorio-auditoria.md` | Relatório da Fase 2 |
 | `conformidade.md` | Mapa finding → transformação → passo → arquivo:linha (Fase 3) |
 | `concorrencia.sh` / `concorrencia.txt` | Prova de concorrência das escritas condicionais da T07 e seu resultado |
+| `tipos.sh` / `tipos.txt` | Entradas de tipo inválido por rota de escrita e o status de cada uma |
 | `validacao.md` | Evidências consolidadas da Fase 3 |
 
 ---
@@ -313,7 +314,27 @@ O `smoke.sh` dispara uma requisição por vez, então não exercita corrida. Par
 4. Leia o recurso de novo e grave tudo em `.refactor-arch/concorrencia.txt`.
 5. **Invariante:** saldo final `≥ 0`, número de respostas de sucesso `≤ S` e saldo final `= S − sucessos`. As demais respostas são o mesmo erro de negócio do caminho sequencial (ex.: `400`), nunca `500`.
 
-Saldo negativo, sucessos acima de `S` ou `500` = AP-09 **não corrigido**: volte à T07 passo 3. Se nenhum fluxo usa escrita condicional, registre `N/A` com o motivo.
+6. **Unicidade:** para cada rota que cria um registro com campo único (cadastro e checkout por e-mail), dispare `N` requisições paralelas com o **mesmo** valor novo. Resultado esperado: exatamente 1 registro com esse valor no banco. As demais requisições recebem o erro de conflito do caminho sequencial ou reaproveitam o registro, se esse for o contrato; nenhuma recebe 500.
+
+Saldo negativo, sucessos acima de `S`, registro duplicado ou `500` = AP-09 **não corrigido**: volte à T07 passo 3. Se nenhum fluxo usa escrita condicional nem unicidade, registre `N/A` com o motivo.
+
+### B6.3. Entradas de tipo inválido (T09, passo 4)
+
+O `smoke.sh` só manda corpo vazio e campo ausente. Gere `.refactor-arch/tipos.sh`, que roda só depois da refatoração e não é comparado com o baseline, porque no original esses casos podem derrubar o processo. Para **cada rota de escrita** (`POST`/`PUT`/`PATCH`, incluindo login) e para cada parâmetro numérico de query ou path, envie:
+
+| Caso | Exemplo |
+|---|---|
+| Texto onde se espera número | `{"preco":"abc"}`, `?limit=abc` |
+| Número onde se espera texto | `{"nome":123}`, `{"senha":123456}` |
+| `null` em campo obrigatório | `{"nome":null}` |
+| Booleano onde se espera número | `{"estoque":true}` |
+| Corpo que é lista | `["x"]` |
+| Número não finito (onde o parser aceita) | `{"preco":NaN}` |
+| Inteiro gigante em id | `/recurso/99999999999999999999` |
+
+**Esperado:** 4xx em todos os casos (400 de validação, ou 404 para id gigante), nunca 5xx. Envie o token quando a rota for protegida, senão o 401 esconde a validação.
+
+Qualquer 5xx deixa o finding de validação (AP-14) **não corrigido**. Corrija e volte a B2. Registre a tabela caso → status em `validacao.md`.
 
 ### B7. Encerrar e registrar
 
@@ -353,6 +374,10 @@ Comentários confrontados com o código: <N> | Divergências: <nenhuma | lista>
 ## Prova de concorrência
 Recurso: <id> com saldo inicial <S> | Requisições paralelas: <N>
 Respostas: <contagem por status> | Saldo final: <valor> | Invariante: ✓ | ✗ | N/A: <motivo>
+Unicidade: <rota> com <N> requisições do mesmo valor → <registros no banco> | <contagem por status>
+
+## Entradas de tipo inválido
+Casos: <N> | 4xx: <X> | 5xx: <0 | lista>
 
 ## Estado deixado
 Porta <porta> livre. Bancos originais preservados em `.refactor-arch/db-backup/`.
